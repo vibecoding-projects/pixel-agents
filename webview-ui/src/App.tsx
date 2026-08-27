@@ -526,7 +526,9 @@ function App() {
               panRef={editor.panRef}
               onCloseAgent={handleCloseAgent}
               alwaysShowOverlay={alwaysShowOverlay}
-              showNameplates={showNameplates}
+              /* Nameplates clear out while the layout editor is open — same
+                 clean-canvas discipline as link lines and the crash glyph. */
+              showNameplates={showNameplates && !editor.isEditMode}
               customTitles={customTitles}
               terminalNames={terminalNames}
             />

@@ -339,8 +339,9 @@ export const PTY_ACTIVITY_HOLD_MS = 200;
 export const PTY_ACTIVITY_THROTTLE_MS = 50;
 /** Agent rail width (px) on the left edge of the terminal band. */
 export const TERMINAL_RAIL_WIDTH_PX = 168;
-/** Drag-resize handle height (px) at the top of the terminal band. */
-export const TERMINAL_BAND_HANDLE_HEIGHT_PX = 6;
+/** Drag-resize handle thickness (px) — height when the band docks bottom,
+ *  width when it docks left/right. */
+export const TERMINAL_BAND_HANDLE_THICKNESS_PX = 6;
 /** Terminal search bar dimensions (px). */
 export const TERMINAL_SEARCH_BAR_WIDTH_PX = 240;
 export const TERMINAL_SEARCH_BAR_HEIGHT_PX = 26;
@@ -364,6 +365,9 @@ export const CRASHED_GLYPH_LINE_WIDTH_ZOOM_FACTOR = 0.3;
 /** Name shown under each character (customTitle → agentName → terminalName →
  *  "Agent #id"), gated by the Show Agent Names setting. v2 visual parity. */
 export const NAMEPLATE_TEXT_COLOR = '#dcd6ec';
+/** Deliberate soft-glow exception to the hard-offset shadow aesthetic: the
+ *  nameplate floats over arbitrary floor art, and the blur is what keeps the
+ *  tiny text legible there (v2 parity). Do not "fix" to a hard shadow. */
 export const NAMEPLATE_TEXT_OUTLINE = '0 0 2px #000, 0 0 4px rgba(0, 0, 0, 0.8)';
 
 // ── Sub-agent link lines ────────────────────────────────────

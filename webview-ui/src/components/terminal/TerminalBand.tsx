@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   TERMINAL_BAND_DEFAULT_HEIGHT_PX,
   TERMINAL_BAND_DEFAULT_WIDTH_PX,
-  TERMINAL_BAND_HANDLE_HEIGHT_PX,
+  TERMINAL_BAND_HANDLE_THICKNESS_PX,
   TERMINAL_BAND_MAX_HEIGHT_PX,
   TERMINAL_BAND_MAX_WIDTH_PX,
   TERMINAL_BAND_MIN_HEIGHT_PX,
@@ -113,8 +113,8 @@ export function TerminalBand({
       className={isVertical ? 'h-full cursor-col-resize' : 'w-full cursor-row-resize'}
       style={{
         ...(isVertical
-          ? { width: TERMINAL_BAND_HANDLE_HEIGHT_PX }
-          : { height: TERMINAL_BAND_HANDLE_HEIGHT_PX }),
+          ? { width: TERMINAL_BAND_HANDLE_THICKNESS_PX }
+          : { height: TERMINAL_BAND_HANDLE_THICKNESS_PX }),
         background: 'var(--color-bg-thumb)',
         touchAction: 'none',
         flex: '0 0 auto',

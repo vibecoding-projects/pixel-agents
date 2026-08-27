@@ -221,7 +221,8 @@ export function SettingsModal({
                 size="sm"
                 variant={panelPosition === p ? 'accent' : 'default'}
                 onClick={() => onChangePanelPosition(p)}
-                aria-pressed={panelPosition === p}
+                role="radio"
+                aria-checked={panelPosition === p}
               >
                 {p.charAt(0).toUpperCase() + p.slice(1)}
               </Button>

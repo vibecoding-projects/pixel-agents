@@ -525,7 +525,7 @@ export async function setSettings(frame: WebviewSurface, settings: WebviewSettin
     const group = settingsModal.getByRole('radiogroup', { name: 'Terminal Position' });
     const label =
       settings.terminalPosition.charAt(0).toUpperCase() + settings.terminalPosition.slice(1);
-    await group.getByRole('button', { name: label }).click();
+    await group.getByRole('radio', { name: label }).click();
   }
   if (settings.ghostHeadlessAgents !== undefined) {
     await setCheckbox(settingsModal, 'Display Headless as Ghosts', settings.ghostHeadlessAgents);

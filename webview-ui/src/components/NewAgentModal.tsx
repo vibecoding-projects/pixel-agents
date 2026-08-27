@@ -50,12 +50,17 @@ export function NewAgentModal({
   }, [isOpen]);
 
   // A refusal seeds the rejected folder + reason exactly once (consumedSeqRef
-  // survives close/reopen, so a manual + Agent later starts clean).
+  // survives close/reopen, so a manual + Agent later starts clean). The name
+  // and bypass choice of the refused request are restored too — a retry after
+  // a folder typo must not silently drop half the request.
   const consumedSeqRef = useRef(0);
+  const lastSpawnRef = useRef<{ name: string; bypass: boolean } | null>(null);
   useEffect(() => {
     if (isOpen && failure && failure.seq > consumedSeqRef.current) {
       consumedSeqRef.current = failure.seq;
       setFolder(failure.folderPath);
+      setName(lastSpawnRef.current?.name ?? '');
+      setBypass(lastSpawnRef.current?.bypass ?? false);
       setShownFailureSeq(failure.seq);
     }
   }, [isOpen, failure]);
@@ -63,6 +68,7 @@ export function NewAgentModal({
   const shownError = failure && failure.seq === shownFailureSeq ? failure.reason : null;
 
   const spawn = () => {
+    lastSpawnRef.current = { name, bypass };
     onSpawn(buildSpawnRequest(name, folder, bypass));
   };
 

@@ -72,13 +72,19 @@ test.describe('Standalone / New-agent form', () => {
     await page.getByRole('button', { name: '+ Agent' }).click();
     const dialog = page.getByRole('dialog', { name: 'New agent' });
     await expect(dialog).toBeVisible();
+    await page.getByLabel('Agent name').fill('Keep Me');
     await page.getByLabel('Starting folder').fill('Desktop/not-a-real-dir-xyz');
+    await dialog.getByRole('checkbox').check();
     await page.getByRole('button', { name: 'Spawn' }).click();
 
     // The server refuses instead of silently spawning in its own cwd; the
-    // form comes back with the rejected folder and the reason.
+    // form comes back with the WHOLE rejected request — folder and reason,
+    // but also the name and the bypass choice (a retry after a folder typo
+    // must not silently drop half the request).
     await expect(dialog.getByText(/Folder not found/)).toBeVisible();
     await expect(page.getByLabel('Starting folder')).toHaveValue('Desktop/not-a-real-dir-xyz');
+    await expect(page.getByLabel('Agent name')).toHaveValue('Keep Me');
+    await expect(dialog.getByRole('checkbox')).toBeChecked();
     const messages = await standalone.drainMessages();
     expect(messages.some((m) => m.type === 'launchAgentFailed')).toBe(true);
     // No character, no terminal band — nothing was spawned.

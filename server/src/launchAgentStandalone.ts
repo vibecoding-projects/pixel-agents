@@ -84,6 +84,10 @@ export function launchAgentStandalone(
     return null;
   }
 
+  // The wire path (clientMessageHandler's launchAgent case) REFUSES a
+  // supplied folder that doesn't resolve, before ever calling this — so this
+  // fallback only covers a missing/blank folderPath. A new direct caller must
+  // add the same refusal rather than lean on this silent default.
   const cwd = resolveDefaultCwd(opts.folderPath) ?? launchCwd;
   const sessionId = crypto.randomUUID();
   const launch = provider.buildLaunchCommand(sessionId, cwd, {

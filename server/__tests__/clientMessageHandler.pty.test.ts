@@ -152,6 +152,19 @@ describe('clientMessageHandler: standalone pty dispatch', () => {
       expect(settings[settings.length - 1].recentAgentFolders).toEqual([launchCwd]);
     });
 
+    it('unprivileged + bad folderPath: no spawn AND no launchAgentFailed (the refusal must not become a directory-existence oracle)', () => {
+      const { host, starts } = makeFakePtyHost();
+      const ctx = makeCtx(host, false);
+      handleClientMessage(
+        { type: 'launchAgent', folderPath: 'Desktop/not-a-real-dir-xyz' },
+        send,
+        ctx,
+      );
+      expect(store.size).toBe(0);
+      expect(starts).toHaveLength(0);
+      expect(sent.filter((m) => m.type === 'launchAgentFailed')).toHaveLength(0);
+    });
+
     it('refuses to spawn and reports launchAgentFailed when folderPath cannot be resolved', () => {
       const { host, starts } = makeFakePtyHost();
       const ctx = makeCtx(host);
