@@ -30,7 +30,6 @@ import {
   CRASHED_GLYPH_SIZE_PX,
   DELETE_BUTTON_BG,
   FALLBACK_FLOOR_COLOR,
-  FOCUS_HALO_INSET_PX,
   GHOST_BORDER_HOVER_FILL,
   GHOST_BORDER_HOVER_STROKE,
   GHOST_BORDER_STROKE,
@@ -82,7 +81,6 @@ import type {
 } from '../types.js';
 import { CharacterState, TILE_SIZE, TileType } from '../types.js';
 import { getWallInstances, hasWallSprites, wallColorToHex } from '../wallTiles.js';
-import { getFocusHaloStyle } from './characterHalo.js';
 import { getCharacterSprite } from './characters.js';
 import { renderMatrixEffect } from './matrixEffect.js';
 import { getPetSpriteData } from './petEntity.js';
@@ -399,7 +397,7 @@ export function renderScene(
   }
 
   // Sub-agent → parent dashed link lines. Only while the parent terminal is
-  // focused, and suppressed in edit mode (matches the halo's gate).
+  // focused, and suppressed in edit mode.
   if (selection.focusedAgentId != null && !selection.isEditMode) {
     const focusedId = selection.focusedAgentId;
     for (const ch of characters) {
@@ -484,38 +482,6 @@ export function renderScene(
           c.restore();
         },
       });
-    }
-
-    // Focus halo: seat-anchored rectangle around the focused terminal's
-    // character. Gated !isEditMode like the crash glyph below; the outline
-    // block above stays ungated (base behavior).
-    if (!selection.isEditMode) {
-      const isFocused = selection.focusedAgentId != null && ch.id === selection.focusedAgentId;
-      const haloStyle = getFocusHaloStyle({
-        isActive: ch.isActive,
-        isFocused,
-        awaitingSince: ch.awaitingSince,
-      });
-      if (haloStyle && !ch.isSubagent) {
-        // Halo anchors to the WORK SEAT — stable while the character roams.
-        const seat = ch.seatId ? selection.seats.get(ch.seatId) : null;
-        const haloCol = seat?.seatCol ?? ch.tileCol;
-        const haloRow = seat?.seatRow ?? ch.tileRow;
-        const hx = offsetX + haloCol * TILE_SIZE * zoom - FOCUS_HALO_INSET_PX;
-        const hy = offsetY + haloRow * TILE_SIZE * zoom - FOCUS_HALO_INSET_PX;
-        const hw = TILE_SIZE * zoom + FOCUS_HALO_INSET_PX * 2;
-        drawables.push({
-          zY: charZY - OUTLINE_Z_SORT_OFFSET * 2,
-          draw: (c) => {
-            c.save();
-            c.strokeStyle = haloStyle.color;
-            c.lineWidth = haloStyle.width;
-            c.setLineDash([...haloStyle.dash]);
-            c.strokeRect(hx, hy, hw, hw);
-            c.restore();
-          },
-        });
-      }
     }
 
     // Crash glyph: only a NEW drawable, so it's the only thing gated on
@@ -976,11 +942,11 @@ export interface SelectionRenderState {
   seats: Map<string, Seat>;
   characters: Map<number, Character>;
   /** True while the layout editor is open. Gates NEW selection-adjacent
-   *  drawables (this crash glyph, Task 10's halo + link lines) — the
-   *  pre-existing outline block stays ungated. */
+   *  drawables (the crash glyph, sub-agent link lines) — the pre-existing
+   *  outline block stays ungated. */
   isEditMode: boolean;
-  /** Character id of the currently-focused terminal, or null. Drives the
-   *  focus halo and gates the sub-agent link lines. */
+  /** Character id of the currently-focused terminal, or null. Gates the
+   *  sub-agent link lines. */
   focusedAgentId: number | null;
   /** Sub-agent id → { parentAgentId, parentToolId }, sourced from
    *  `officeState.subagentMeta`. Used to draw dashed lines from each of the

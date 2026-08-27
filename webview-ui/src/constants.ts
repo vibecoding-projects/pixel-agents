@@ -356,16 +356,7 @@ export const CRASHED_GLYPH_LINE_WIDTH_MIN = 1;
 /** Line width zoom factor for crash glyph border — v2 visual parity. */
 export const CRASHED_GLYPH_LINE_WIDTH_ZOOM_FACTOR = 0.3;
 
-// ── Focus halo + sub-agent link lines ───────────────────────
-/** Seat-anchored rectangle drawn around the focused terminal's character.
- *  Inset/width are intentionally NOT zoom-scaled — v2 visual parity. */
-export const FOCUS_HALO_WIDTH_PX = 2;
-export const FOCUS_HALO_INSET_PX = 2;
-export const FOCUS_HALO_DOTTED_DASH = [1, 1];
-export const FOCUS_HALO_SOLID_DASH: number[] = [];
-export const FOCUS_HALO_COLOR_ACCENT = '#4ade80';
-export const FOCUS_HALO_COLOR_MUTED = '#6b7280';
-export const FOCUS_HALO_COLOR_AWAITING = '#f59e0b';
+// ── Sub-agent link lines ────────────────────────────────────
 /** Dashed line from a sub-agent to its parent's center, shown only while the
  *  parent terminal is focused. */
 export const SUBAGENT_LINK_DASH = [2, 2];

@@ -45,9 +45,9 @@ interface OfficeCanvasProps {
   showAreas: boolean;
   /** Currently-selected area label in the editor (alpha-bumped overlay). null otherwise. */
   activeAreaLabel: string | null;
-  /** Character id of the currently-focused terminal. Drives the focus halo
-   *  and sub-agent link lines. Mirrored into a ref (see `focusedAgentIdRef`)
-   *  so focus changes don't restart the game loop's render effect. */
+  /** Character id of the currently-focused terminal. Drives the sub-agent
+   *  link lines. Mirrored into a ref (see `focusedAgentIdRef`) so focus
+   *  changes don't restart the game loop's render effect. */
   focusedAgentId?: number | null;
 }
 
