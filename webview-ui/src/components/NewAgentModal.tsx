@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
+import type { LaunchAgentFailure } from '../hooks/useExtensionMessages.js';
 import type { NewAgentSpawn } from './newAgentSpawn.js';
 import { buildSpawnRequest } from './newAgentSpawn.js';
 import { Button } from './ui/Button.js';
@@ -10,6 +11,9 @@ interface NewAgentModalProps {
   isOpen: boolean;
   /** MRU list from settingsLoaded (config.json), newest first. */
   recentFolders: string[];
+  /** A refused spawn (launchAgentFailed). The form re-opens seeded with the
+   *  rejected folder and shows the server's reason until the field is edited. */
+  failure?: LaunchAgentFailure | null;
   onSpawn: (spawn: NewAgentSpawn) => void;
   onClose: () => void;
 }
@@ -17,12 +21,21 @@ interface NewAgentModalProps {
 /** "New agent" form — the browser runtime's + Agent flow. Both fields are
  *  optional; blank means the same defaults a plain spawn uses. Ported from
  *  v2-orchestrator's NewAgentPopover, re-skinned onto the shared Modal. */
-export function NewAgentModal({ isOpen, recentFolders, onSpawn, onClose }: NewAgentModalProps) {
+export function NewAgentModal({
+  isOpen,
+  recentFolders,
+  failure,
+  onSpawn,
+  onClose,
+}: NewAgentModalProps) {
   // Folder starts EMPTY — the effective default is placeholder text only, so
   // the form never displays a path it would not honor.
   const [name, setName] = useState('');
   const [folder, setFolder] = useState('');
   const [bypass, setBypass] = useState(false);
+  // The seq of the refusal currently displayed; stale once the user edits the
+  // folder field, so the error clears while they fix the path.
+  const [shownFailureSeq, setShownFailureSeq] = useState<number | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -30,10 +43,24 @@ export function NewAgentModal({ isOpen, recentFolders, onSpawn, onClose }: NewAg
       setName('');
       setFolder('');
       setBypass(false);
+      setShownFailureSeq(null);
       // Modal mounts its content on open; focus after that commit.
       setTimeout(() => nameRef.current?.focus(), 0);
     }
   }, [isOpen]);
+
+  // A refusal seeds the rejected folder + reason exactly once (consumedSeqRef
+  // survives close/reopen, so a manual + Agent later starts clean).
+  const consumedSeqRef = useRef(0);
+  useEffect(() => {
+    if (isOpen && failure && failure.seq > consumedSeqRef.current) {
+      consumedSeqRef.current = failure.seq;
+      setFolder(failure.folderPath);
+      setShownFailureSeq(failure.seq);
+    }
+  }, [isOpen, failure]);
+
+  const shownError = failure && failure.seq === shownFailureSeq ? failure.reason : null;
 
   const spawn = () => {
     onSpawn(buildSpawnRequest(name, folder, bypass));
@@ -73,14 +100,24 @@ export function NewAgentModal({ isOpen, recentFolders, onSpawn, onClose }: NewAg
           className="mb-10"
         />
 
-        <label className="block text-2xs text-text-muted mb-4">Starting folder (~ supported)</label>
+        <label className="block text-2xs text-text-muted mb-4">
+          Starting folder (~ or home-relative)
+        </label>
         <Input
           value={folder}
-          onChange={(e) => setFolder(e.target.value)}
+          onChange={(e) => {
+            setFolder(e.target.value);
+            setShownFailureSeq(null);
+          }}
           placeholder="default folder"
           aria-label="Starting folder"
-          className={recentFolders.length ? 'mb-6' : 'mb-10'}
+          className={shownError ? 'mb-2' : recentFolders.length ? 'mb-6' : 'mb-10'}
         />
+        {shownError && (
+          <p role="alert" className="text-2xs text-warning mt-0 mb-6">
+            {shownError}
+          </p>
+        )}
 
         {recentFolders.length > 0 && (
           <div className="mb-10 overflow-y-auto" style={{ maxHeight: 120 }}>

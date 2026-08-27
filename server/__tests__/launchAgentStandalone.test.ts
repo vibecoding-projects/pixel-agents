@@ -118,4 +118,44 @@ describe('resolveDefaultCwd', () => {
   it('returns undefined for a non-existent path', () => {
     expect(resolveDefaultCwd('/definitely/not/a/real/dir-xyz')).toBeUndefined();
   });
+
+  describe('relative paths', () => {
+    let tempHome: string;
+    let originalHome: string | undefined;
+
+    beforeEach(() => {
+      tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-resolve-home-'));
+      originalHome = process.env.HOME;
+      process.env.HOME = tempHome;
+    });
+
+    afterEach(() => {
+      if (originalHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = originalHome;
+      }
+      fs.rmSync(tempHome, { recursive: true, force: true });
+    });
+
+    it('resolves a bare relative path against the home directory', () => {
+      const dir = path.join(tempHome, 'Desktop', 'fs-songer');
+      fs.mkdirSync(dir, { recursive: true });
+      expect(resolveDefaultCwd('Desktop/fs-songer')).toBe(dir);
+    });
+
+    it('expands ~/sub against the home directory', () => {
+      const dir = path.join(tempHome, 'wk');
+      fs.mkdirSync(dir);
+      expect(resolveDefaultCwd('~/wk')).toBe(dir);
+    });
+
+    it('resolves "." against the home directory, not the process cwd', () => {
+      expect(resolveDefaultCwd('.')).toBe(tempHome);
+    });
+
+    it('returns undefined when the home-relative path does not exist', () => {
+      expect(resolveDefaultCwd('Desktop/not-there-xyz')).toBeUndefined();
+    });
+  });
 });

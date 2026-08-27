@@ -16,6 +16,10 @@ export interface WebviewSettings {
   watchAllSessions?: boolean;
   hooksEnabled?: boolean;
   alwaysShowLabels?: boolean;
+  /** "Show Agent Names" — the nameplate under each character (default on). */
+  showAgentNames?: boolean;
+  /** Terminal band dock side (standalone only; radiogroup, not a checkbox). */
+  terminalPosition?: 'bottom' | 'left' | 'right';
   ghostHeadlessAgents?: boolean;
   debugView?: boolean;
 }
@@ -513,6 +517,15 @@ export async function setSettings(frame: WebviewSurface, settings: WebviewSettin
   }
   if (settings.alwaysShowLabels !== undefined) {
     await setCheckbox(settingsModal, 'Always Show Labels', settings.alwaysShowLabels);
+  }
+  if (settings.showAgentNames !== undefined) {
+    await setCheckbox(settingsModal, 'Show Agent Names', settings.showAgentNames);
+  }
+  if (settings.terminalPosition !== undefined) {
+    const group = settingsModal.getByRole('radiogroup', { name: 'Terminal Position' });
+    const label =
+      settings.terminalPosition.charAt(0).toUpperCase() + settings.terminalPosition.slice(1);
+    await group.getByRole('button', { name: label }).click();
   }
   if (settings.ghostHeadlessAgents !== undefined) {
     await setCheckbox(settingsModal, 'Display Headless as Ghosts', settings.ghostHeadlessAgents);

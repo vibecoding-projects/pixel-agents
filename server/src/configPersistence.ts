@@ -8,6 +8,9 @@ export interface AdapterSettings {
   soundEnabled: boolean;
   lastSeenVersion: string;
   alwaysShowLabels: boolean;
+  /** Nameplate under each character (custom title / agent name / terminal
+   *  name). Default true — readers must apply the default at getSetting. */
+  showTerminalNames: boolean;
   ghostHeadlessAgents: boolean;
   watchAllSessions: boolean;
   hooksInfoShown: boolean;
@@ -26,6 +29,7 @@ export const ADAPTER_SETTING_KEYS = [
   'soundEnabled',
   'lastSeenVersion',
   'alwaysShowLabels',
+  'showTerminalNames',
   'ghostHeadlessAgents',
   'watchAllSessions',
   'hooksInfoShown',
@@ -63,6 +67,7 @@ const DEFAULT_ADAPTER_SETTINGS: AdapterSettings = {
   soundEnabled: true,
   lastSeenVersion: '',
   alwaysShowLabels: false,
+  showTerminalNames: true,
   ghostHeadlessAgents: false,
   watchAllSessions: false,
   hooksInfoShown: false,
@@ -131,6 +136,10 @@ function parseAdapterSettings(raw: unknown): AdapterSettings {
       typeof obj.lastSeenVersion === 'string'
         ? obj.lastSeenVersion
         : DEFAULT_ADAPTER_SETTINGS.lastSeenVersion,
+    showTerminalNames:
+      typeof obj.showTerminalNames === 'boolean'
+        ? obj.showTerminalNames
+        : DEFAULT_ADAPTER_SETTINGS.showTerminalNames,
     alwaysShowLabels:
       typeof obj.alwaysShowLabels === 'boolean'
         ? obj.alwaysShowLabels

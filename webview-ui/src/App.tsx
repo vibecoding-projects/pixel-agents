@@ -10,6 +10,8 @@ import { IntroBubble } from './components/IntroBubble.js';
 import { MigrationNotice } from './components/MigrationNotice.js';
 import { NewAgentModal } from './components/NewAgentModal.js';
 import { SettingsModal } from './components/SettingsModal.js';
+import type { PanelPosition } from './components/terminal/panelPosition.js';
+import { loadPanelPosition, savePanelPosition } from './components/terminal/panelPosition.js';
 import { TerminalBand } from './components/terminal/TerminalBand.js';
 import { Tooltip } from './components/Tooltip.js';
 import { Modal } from './components/ui/Modal.js';
@@ -88,6 +90,7 @@ function App() {
     watchAllSessions,
     setWatchAllSessions,
     alwaysShowLabels,
+    showTerminalNames,
     ghostHeadlessAgents,
     setGhostHeadlessAgents,
     hooksEnabled,
@@ -101,6 +104,7 @@ function App() {
     showAreas,
     setShowAreas,
     recentAgentFolders,
+    launchAgentFailure,
     ptyBackedByAgent,
     customTitles,
     terminalNames,
@@ -110,6 +114,12 @@ function App() {
   // ── Standalone terminal band (browser runtime only) ──
   const [focusedTerminalId, setFocusedTerminalId] = useState<number | null>(null);
   const [isNewAgentOpen, setIsNewAgentOpen] = useState(false);
+  // A refused launchAgent re-opens the form with the rejected folder and the
+  // server's reason — the alternative (silently spawning in the server's own
+  // cwd) looks like success. Keyed on seq so a repeated refusal re-opens.
+  useEffect(() => {
+    if (launchAgentFailure) setIsNewAgentOpen(true);
+  }, [launchAgentFailure]);
   const railAgents = useMemo(
     () =>
       agents
@@ -152,6 +162,27 @@ function App() {
   useEffect(() => {
     setAlwaysShowOverlay(alwaysShowLabels);
   }, [alwaysShowLabels]);
+
+  // Nameplates under characters (Show Agent Names) — default ON, synced from
+  // persisted settings like alwaysShowOverlay above.
+  const [showNameplates, setShowNameplates] = useState(true);
+  useEffect(() => {
+    setShowNameplates(showTerminalNames);
+  }, [showTerminalNames]);
+  const handleToggleShowNameplates = useCallback(() => {
+    setShowNameplates((prev) => {
+      const newVal = !prev;
+      transport.send({ type: 'setShowTerminalNames', enabled: newVal });
+      return newVal;
+    });
+  }, []);
+
+  // Terminal band dock side — webview-local (see panelPosition.ts).
+  const [panelPosition, setPanelPosition] = useState<PanelPosition>(() => loadPanelPosition());
+  const handleChangePanelPosition = useCallback((p: PanelPosition) => {
+    setPanelPosition(p);
+    savePanelPosition(p);
+  }, []);
 
   const handleToggleDebugMode = useCallback(() => setIsDebugMode((prev) => !prev), []);
   const handleToggleAlwaysShowOverlay = useCallback(() => {
@@ -379,9 +410,18 @@ function App() {
     return <div className="w-full h-full flex items-center justify-center ">Loading...</div>;
   }
 
+  // DOM order is [office, band]: column puts the band at the bottom, row puts
+  // it on the right, row-reverse flips it to the left.
+  const rootFlexDirection =
+    panelPosition === 'bottom'
+      ? 'flex-col'
+      : panelPosition === 'left'
+        ? 'flex-row-reverse'
+        : 'flex-row';
+
   return (
-    <div className="w-full h-full flex flex-col">
-      <div ref={containerRef} className="flex-1 relative min-h-0 overflow-hidden">
+    <div className={`w-full h-full flex ${rootFlexDirection}`}>
+      <div ref={containerRef} className="flex-1 relative min-h-0 min-w-0 overflow-hidden">
         <OfficeCanvas
           officeState={officeState}
           onClick={handleClick}
@@ -486,6 +526,7 @@ function App() {
               panRef={editor.panRef}
               onCloseAgent={handleCloseAgent}
               alwaysShowOverlay={alwaysShowOverlay}
+              showNameplates={showNameplates}
               customTitles={customTitles}
               terminalNames={terminalNames}
             />
@@ -575,6 +616,7 @@ function App() {
 
         <NewAgentModal
           isOpen={isNewAgentOpen}
+          failure={launchAgentFailure}
           recentFolders={recentAgentFolders}
           onSpawn={(spawn) => {
             transport.send({ type: 'launchAgent', ...spawn });
@@ -605,6 +647,10 @@ function App() {
           onToggleDebugMode={handleToggleDebugMode}
           alwaysShowOverlay={alwaysShowOverlay}
           onToggleAlwaysShowOverlay={handleToggleAlwaysShowOverlay}
+          showNameplates={showNameplates}
+          onToggleShowNameplates={handleToggleShowNameplates}
+          panelPosition={panelPosition}
+          onChangePanelPosition={handleChangePanelPosition}
           ghostHeadlessAgents={ghostHeadlessAgents}
           onToggleGhostHeadlessAgents={handleToggleGhostHeadlessAgents}
           externalAssetDirectories={externalAssetDirectories}
@@ -672,6 +718,7 @@ function App() {
           onClose={handleCloseAgent}
           onRestartAgent={(id) => transport.send({ type: 'restartAgent', id })}
           bus={ptyEventBus}
+          position={panelPosition}
         />
       )}
     </div>

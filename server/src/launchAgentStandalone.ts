@@ -46,12 +46,15 @@ export interface LaunchStandaloneDeps {
 }
 
 /** Resolve a user-supplied folder string into an absolute path, or undefined.
- *  Expands leading `~` and requires the path to exist as a directory.
- *  Ported from v2-orchestrator src/agentManager.ts. */
+ *  Expands leading `~`; bare relative paths ("Desktop/proj") resolve against
+ *  the home directory, never the server process cwd. Requires the result to
+ *  exist as a directory. */
 export function resolveDefaultCwd(raw: string | undefined): string | undefined {
   const trimmed = (raw ?? '').trim();
   if (!trimmed) return undefined;
-  const expanded = trimmed.startsWith('~') ? path.join(os.homedir(), trimmed.slice(1)) : trimmed;
+  const expanded = trimmed.startsWith('~')
+    ? path.join(os.homedir(), trimmed.slice(1))
+    : path.resolve(os.homedir(), trimmed);
   try {
     if (fs.statSync(expanded).isDirectory()) return expanded;
   } catch {

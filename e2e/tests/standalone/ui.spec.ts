@@ -24,6 +24,40 @@ const ASSET_RELOAD_TIMEOUT_MS = 15_000;
 const CONNECTION_STATE_TIMEOUT_MS = 15_000;
 
 test.describe('Standalone / UI', () => {
+  test('nameplate shows under the character by default and toggles off @area:standalone', async ({
+    page,
+    standalone,
+  }) => {
+    // Deliberately NOT enabling Always Show Labels — the nameplate must not
+    // depend on the hover-gated overlay panel.
+    await setSettings(page, { watchAllSessions: true });
+    await standalone.drainMessages();
+
+    const sessionId = 'standalone-nameplate-session';
+    await sendHookEvent(
+      standalone.hookServerConfig,
+      sessionStartStartup(sessionId, standalone.workspaceDir),
+    );
+    await sendHookEvent(standalone.hookServerConfig, {
+      session_id: sessionId,
+      hook_event_name: 'PreToolUse',
+      tool_name: 'Read',
+      tool_input: { file_path: path.join(standalone.workspaceDir, 'np.ts') },
+    });
+
+    // Hook-adopted agent: no custom title, no terminal name — the nameplate
+    // falls back to the characterLabel "Agent #<id>" identity.
+    const nameplate = page.getByTestId('agent-nameplate');
+    await expect(nameplate).toHaveCount(1, { timeout: 10_000 });
+    await expect(nameplate).toHaveText(/Agent #\d+/);
+
+    await setSettings(page, { showAgentNames: false });
+    await expect(nameplate).toHaveCount(0);
+
+    await setSettings(page, { showAgentNames: true });
+    await expect(nameplate).toHaveCount(1);
+  });
+
   test('closeAgent despawns the character @area:standalone', async ({ page, standalone }) => {
     await setSettings(page, {
       alwaysShowLabels: true,

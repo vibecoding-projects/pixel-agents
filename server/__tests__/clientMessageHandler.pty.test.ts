@@ -152,6 +152,33 @@ describe('clientMessageHandler: standalone pty dispatch', () => {
       expect(settings[settings.length - 1].recentAgentFolders).toEqual([launchCwd]);
     });
 
+    it('refuses to spawn and reports launchAgentFailed when folderPath cannot be resolved', () => {
+      const { host, starts } = makeFakePtyHost();
+      const ctx = makeCtx(host);
+      handleClientMessage(
+        { type: 'launchAgent', folderPath: 'Desktop/not-a-real-dir-xyz' },
+        send,
+        ctx,
+      );
+      expect(store.size).toBe(0);
+      expect(starts).toHaveLength(0);
+      const failed = sent.filter((m) => m.type === 'launchAgentFailed');
+      expect(failed).toHaveLength(1);
+      expect(failed[0].folderPath).toBe('Desktop/not-a-real-dir-xyz');
+      expect(typeof failed[0].reason).toBe('string');
+    });
+
+    it('spawns in a home-relative folder typed without ~ or a leading slash', () => {
+      const { host, starts } = makeFakePtyHost();
+      const ctx = makeCtx(host);
+      const dir = path.join(tempHome, 'projects', 'app');
+      fs.mkdirSync(dir, { recursive: true });
+      handleClientMessage({ type: 'launchAgent', folderPath: 'projects/app' }, send, ctx);
+      expect(starts).toHaveLength(1);
+      expect(starts[0].opts.cwd).toBe(dir);
+      expect(sent.filter((m) => m.type === 'launchAgentFailed')).toHaveLength(0);
+    });
+
     it('does not record a nonexistent folderPath in recents', () => {
       const { host } = makeFakePtyHost();
       const ctx = makeCtx(host);

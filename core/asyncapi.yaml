@@ -108,6 +108,7 @@ components:
         - $ref: '#/components/schemas/CrashAcknowledged'
         - $ref: '#/components/schemas/AgentRenamed'
         - $ref: '#/components/schemas/AgentRestarted'
+        - $ref: '#/components/schemas/LaunchAgentFailed'
         # Layout
         - $ref: '#/components/schemas/LayoutLoaded'
         # Assets
@@ -139,6 +140,7 @@ components:
         - $ref: '#/components/schemas/SetSoundEnabled'
         - $ref: '#/components/schemas/SetLastSeenVersion'
         - $ref: '#/components/schemas/SetAlwaysShowLabels'
+        - $ref: '#/components/schemas/SetShowTerminalNames'
         - $ref: '#/components/schemas/SetGhostHeadlessAgents'
         - $ref: '#/components/schemas/SetHooksEnabled'
         - $ref: '#/components/schemas/HooksConsentResponse'
@@ -586,6 +588,24 @@ components:
         id:
           type: integer
 
+    LaunchAgentFailed:
+      description: >-
+        A launchAgent request was refused before any pty was spawned — the
+        supplied starting folder did not resolve to an existing directory.
+        Sent point-to-point to the requesting client so its New-agent form
+        can surface the error instead of the agent silently opening in the
+        server's default folder.
+      type: object
+      additionalProperties: false
+      required: [type, folderPath, reason]
+      properties:
+        type:
+          const: launchAgentFailed
+        folderPath:
+          type: string
+        reason:
+          type: string
+
     LayoutLoaded:
       description: |
         Office layout (tiles, furniture, colors). `null` when no layout file or
@@ -813,6 +833,9 @@ components:
             type: string
         showAreas:
           type: boolean
+        showTerminalNames:
+          type: boolean
+          description: Show each agent's nameplate under its character (default true).
         recentAgentFolders:
           type: array
           description: MRU starting folders from the New-agent form (newest first).
@@ -1099,6 +1122,19 @@ components:
       properties:
         type:
           const: setAlwaysShowLabels
+        enabled:
+          type: boolean
+
+    SetShowTerminalNames:
+      description: >-
+        Toggle the nameplate shown under each character (custom title,
+        agent name, or terminal name). On by default.
+      type: object
+      additionalProperties: false
+      required: [type, enabled]
+      properties:
+        type:
+          const: setShowTerminalNames
         enabled:
           type: boolean
 

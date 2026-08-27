@@ -326,6 +326,10 @@ export const TERMINAL_THEME_BACKGROUND = '#181828';
 export const TERMINAL_BAND_DEFAULT_HEIGHT_PX = 260;
 export const TERMINAL_BAND_MIN_HEIGHT_PX = 120;
 export const TERMINAL_BAND_MAX_HEIGHT_PX = 600;
+/** Terminal band default/min/max widths (px) when docked left or right. */
+export const TERMINAL_BAND_DEFAULT_WIDTH_PX = 480;
+export const TERMINAL_BAND_MIN_WIDTH_PX = 320;
+export const TERMINAL_BAND_MAX_WIDTH_PX = 900;
 /** Client-side scrollback (lines) — matches server PTY_SCROLLBACK_MAX_LINES. */
 export const TERMINAL_SCROLLBACK_LINES = 2000;
 /** How long a pty-activity bump holds the typing animation window open (ms). */
@@ -355,6 +359,12 @@ export const CRASHED_GLYPH_BORDER = '#0a0a14';
 export const CRASHED_GLYPH_LINE_WIDTH_MIN = 1;
 /** Line width zoom factor for crash glyph border — v2 visual parity. */
 export const CRASHED_GLYPH_LINE_WIDTH_ZOOM_FACTOR = 0.3;
+
+// ── Character Nameplate ──────────────────────────────────────
+/** Name shown under each character (customTitle → agentName → terminalName →
+ *  "Agent #id"), gated by the Show Agent Names setting. v2 visual parity. */
+export const NAMEPLATE_TEXT_COLOR = '#dcd6ec';
+export const NAMEPLATE_TEXT_OUTLINE = '0 0 2px #000, 0 0 4px rgba(0, 0, 0, 0.8)';
 
 // ── Sub-agent link lines ────────────────────────────────────
 /** Dashed line from a sub-agent to its parent's center, shown only while the

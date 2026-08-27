@@ -291,6 +291,30 @@ describe('clientMessageHandler: areas + carpet wire ordering', () => {
     });
   });
 
+  // ── setShowTerminalNames ─────────────────────────────────────
+
+  describe('setShowTerminalNames', () => {
+    it('defaults to true and round-trips a toggle through settingsLoaded', () => {
+      handleClientMessage({ type: 'webviewReady' }, (m) => sent.push(m), ctx);
+      let settings = sent.find((m) => m.type === 'settingsLoaded') as {
+        showTerminalNames?: boolean;
+      };
+      expect(settings.showTerminalNames).toBe(true);
+
+      handleClientMessage(
+        { type: 'setShowTerminalNames', enabled: false },
+        (m) => sent.push(m),
+        ctx,
+      );
+      sent = [];
+      handleClientMessage({ type: 'webviewReady' }, (m) => sent.push(m), ctx);
+      settings = sent.find((m) => m.type === 'settingsLoaded') as {
+        showTerminalNames?: boolean;
+      };
+      expect(settings.showTerminalNames).toBe(false);
+    });
+  });
+
   // ── handleWebviewReady ordering ──────────────────────────────
 
   describe('handleWebviewReady ordering', () => {

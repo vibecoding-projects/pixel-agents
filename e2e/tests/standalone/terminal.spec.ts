@@ -32,6 +32,41 @@ async function spawnFromForm(page: import('@playwright/test').Page): Promise<voi
 }
 
 test.describe('Standalone / Terminal band', () => {
+  test('Terminal Position docks the band right, left, and back to bottom @area:terminal', async ({
+    page,
+    standalone,
+  }) => {
+    await standalone.drainMessages();
+    await setSettings(page, { alwaysShowLabels: true });
+    await spawnFromForm(page);
+
+    const band = page.getByTestId('terminal-band');
+    await expect(band).toBeVisible({ timeout: SPAWN_TIMEOUT_MS });
+    await expect(band).toHaveAttribute('data-position', 'bottom');
+
+    // Dock right: the band hugs the right viewport edge, full height.
+    await setSettings(page, { terminalPosition: 'right' });
+    await expect(band).toHaveAttribute('data-position', 'right');
+    const viewport = page.viewportSize()!;
+    const rightBox = (await band.boundingBox())!;
+    expect(rightBox.x + rightBox.width).toBeGreaterThan(viewport.width - 4);
+    expect(rightBox.height).toBeGreaterThan(viewport.height * 0.9);
+
+    // Dock left.
+    await setSettings(page, { terminalPosition: 'left' });
+    await expect(band).toHaveAttribute('data-position', 'left');
+    const leftBox = (await band.boundingBox())!;
+    expect(leftBox.x).toBeLessThan(4);
+    expect(leftBox.height).toBeGreaterThan(viewport.height * 0.9);
+
+    // And back to bottom.
+    await setSettings(page, { terminalPosition: 'bottom' });
+    await expect(band).toHaveAttribute('data-position', 'bottom');
+    const bottomBox = (await band.boundingBox())!;
+    expect(bottomBox.y + bottomBox.height).toBeGreaterThan(viewport.height - 4);
+    expect(bottomBox.width).toBeGreaterThan(viewport.width * 0.9);
+  });
+
   test('+ Agent spawns a pty agent: character, band, mock invocation @area:terminal', async ({
     page,
     standalone,

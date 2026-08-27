@@ -32,6 +32,7 @@ export type ServerMessage =
   | CrashAcknowledged
   | AgentRenamed
   | AgentRestarted
+  | LaunchAgentFailed
   | LayoutLoaded
   | FurnitureAssetsLoaded
   | CharacterSpritesLoaded
@@ -57,6 +58,7 @@ export type ClientMessage =
   | SetSoundEnabled
   | SetLastSeenVersion
   | SetAlwaysShowLabels
+  | SetShowTerminalNames
   | SetGhostHeadlessAgents
   | SetHooksEnabled
   | HooksConsentResponse
@@ -249,6 +251,12 @@ export interface AgentRestarted {
   id: number;
 }
 
+export interface LaunchAgentFailed {
+  type: 'launchAgentFailed';
+  folderPath: string;
+  reason: string;
+}
+
 export interface LayoutLoaded {
   type: 'layoutLoaded';
   layout: Record<string, any> | null;
@@ -336,6 +344,7 @@ export interface SettingsLoaded {
   hooksInfoShown: boolean;
   externalAssetDirectories: string[];
   showAreas: boolean;
+  showTerminalNames?: boolean;
   recentAgentFolders?: string[];
 }
 
@@ -426,6 +435,11 @@ export interface SetLastSeenVersion {
 
 export interface SetAlwaysShowLabels {
   type: 'setAlwaysShowLabels';
+  enabled: boolean;
+}
+
+export interface SetShowTerminalNames {
+  type: 'setShowTerminalNames';
   enabled: boolean;
 }
 

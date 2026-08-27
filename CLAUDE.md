@@ -196,8 +196,8 @@ Adding a new CLI integration is one subdirectory under `server/src/providers/hoo
 
 `core/asyncapi.yaml` is the contract. Pinned to **3.0.0** because `@asyncapi/modelina@5.10.1` declares `supportedVersions: ['3.0.0']` only; bumping to 3.1.0 produces `export type Root = any`. Revisit when Modelina ships 3.1.0 support.
 
-- **38 ServerMessage variants** (server → client): agent lifecycle, agent activity, sub-agent activity, team + context usage, in-office pty terminals, assets, settings + workspace, diagnostics.
-- **27 ClientMessage variants** (client → server): lifecycle (`webviewReady`, `launchAgent`, `focusAgent`, `closeAgent`), layout (`saveAgentSeats`, `saveLayout`, `exportLayout`, `importLayout`), settings (`setSoundEnabled`, `setHooksEnabled`, `setWatchAllSessions`, `setAlwaysShowLabels`, `setHooksInfoShown`, `setLastSeenVersion`), in-office pty terminals (`ptyInput`, `ptyResize`, `terminalPaneReady`, `restartAgent`, `acknowledgeCrash`), discovery + assets, diagnostics.
+- **39 ServerMessage variants** (server → client): agent lifecycle (incl. `launchAgentFailed` — a refused spawn folder, sent point-to-point to the requester), agent activity, sub-agent activity, team + context usage, in-office pty terminals, assets, settings + workspace, diagnostics.
+- **28 ClientMessage variants** (client → server): lifecycle (`webviewReady`, `launchAgent`, `focusAgent`, `closeAgent`), layout (`saveAgentSeats`, `saveLayout`, `exportLayout`, `importLayout`), settings (`setSoundEnabled`, `setHooksEnabled`, `setWatchAllSessions`, `setAlwaysShowLabels`, `setShowTerminalNames`, `setHooksInfoShown`, `setLastSeenVersion`), in-office pty terminals (`ptyInput`, `ptyResize`, `terminalPaneReady`, `restartAgent`, `acknowledgeCrash`), discovery + assets, diagnostics.
 
 Both unions use `oneOf` with `discriminator: type`. Every concrete message sets `additionalProperties: false`.
 

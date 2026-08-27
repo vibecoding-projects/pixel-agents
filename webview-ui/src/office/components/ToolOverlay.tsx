@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 
 import { Button } from '../../components/ui/Button.js';
 import {
@@ -13,11 +13,14 @@ import {
   CONTEXT_GAUGE_HEIGHT_PX,
   CONTEXT_GAUGE_WIDTH_PX,
   CONTEXT_WARN_THRESHOLD,
+  NAMEPLATE_TEXT_COLOR,
+  NAMEPLATE_TEXT_OUTLINE,
   TEAM_LEAD_COLOR,
   TEAM_ROLE_COLOR,
   TOOL_OVERLAY_VERTICAL_OFFSET,
 } from '../../constants.js';
 import type { SubagentCharacter } from '../../hooks/useExtensionMessages.js';
+import { characterLabel } from '../engine/characters.js';
 import type { OfficeState } from '../engine/officeState.js';
 import { overlayProjection } from '../projection.js';
 import type { ToolActivity } from '../types.js';
@@ -40,6 +43,8 @@ interface ToolOverlayProps {
   panRef: React.RefObject<{ x: number; y: number }>;
   onCloseAgent: (id: number) => void;
   alwaysShowOverlay: boolean;
+  /** Nameplate under every non-sub character (Show Agent Names setting). */
+  showNameplates: boolean;
   /** User-chosen agent names (New-agent form / rename). Shown above the team-role row. */
   customTitles?: Record<number, string>;
   /** Standalone terminal names (Task 8), shown when no customTitle is set. */
@@ -96,6 +101,7 @@ export function ToolOverlay({
   panRef,
   onCloseAgent,
   alwaysShowOverlay,
+  showNameplates,
   customTitles,
   terminalNames,
 }: ToolOverlayProps) {
@@ -136,13 +142,49 @@ export function ToolOverlay({
         const isHovered = hoveredId === id;
         const isSub = ch.isSubagent;
 
-        // Only show for hovered or selected agents (unless always-show is on)
-        if (!alwaysShowOverlay && !isSelected && !isHovered) return null;
-
         // Position above character
         const sittingOffset = ch.state === CharacterState.TYPE ? CHARACTER_SITTING_OFFSET_PX : 0;
         const screenX = project.toScreenX(ch.x);
         const screenY = project.toScreenY(ch.y + sittingOffset - TOOL_OVERLAY_VERTICAL_OFFSET);
+
+        // Nameplate under the character — independent of the hover-gated panel
+        // above, so it renders for every non-sub agent while the setting is on.
+        // v2 visual parity (ToolOverlay nameplate).
+        const nameplate =
+          showNameplates && !isSub ? (
+            <div
+              className="absolute flex justify-center -translate-x-1/2"
+              style={{
+                left: screenX,
+                top: project.toScreenY(ch.y + sittingOffset),
+                pointerEvents: 'none',
+                zIndex: 41,
+              }}
+              data-testid="agent-nameplate"
+              data-agent-id={id}
+            >
+              <span
+                className="text-2xs leading-none whitespace-nowrap max-w-2xs overflow-hidden text-ellipsis"
+                style={{
+                  color: NAMEPLATE_TEXT_COLOR,
+                  textShadow: NAMEPLATE_TEXT_OUTLINE,
+                }}
+              >
+                {characterLabel({
+                  customTitle: customTitles?.[id],
+                  agentName: ch.agentName,
+                  terminalName: terminalNames?.[id],
+                  id,
+                })}
+              </span>
+            </div>
+          ) : null;
+
+        // Only show the panel for hovered or selected agents (unless
+        // always-show is on) — the nameplate above stays either way.
+        if (!alwaysShowOverlay && !isSelected && !isHovered) {
+          return <Fragment key={id}>{nameplate}</Fragment>;
+        }
 
         // A "Done" agent (finished turn: waiting bubble without awaitingInput)
         // shows ONLY its floating green checkmark bubble, never the label panel
@@ -153,13 +195,15 @@ export function ToolOverlay({
         const isDone = ch.bubbleType === 'waiting' && !ch.waitingAwaitingInput;
         if (isDone && !isSelected && !isHovered) {
           return (
-            <div
-              key={id}
-              className="absolute"
-              style={{ left: screenX, top: screenY, pointerEvents: 'none' }}
-              data-testid="agent-overlay"
-              data-agent-id={id}
-            />
+            <Fragment key={id}>
+              <div
+                className="absolute"
+                style={{ left: screenX, top: screenY, pointerEvents: 'none' }}
+                data-testid="agent-overlay"
+                data-agent-id={id}
+              />
+              {nameplate}
+            </Fragment>
           );
         }
 
@@ -222,99 +266,101 @@ export function ToolOverlay({
         const showContextGauge = !isSub && ch.contextTokens > 0;
 
         return (
-          <div
-            key={id}
-            className="absolute flex flex-col items-center -translate-x-1/2"
-            style={{
-              left: screenX,
-              top: screenY - (hasExtraLines ? 34 : 28),
-              pointerEvents: isSelected ? 'auto' : 'none',
-              opacity: alwaysShowOverlay && !isSelected && !isHovered ? (isSub ? 0.5 : 0.75) : 1,
-              zIndex: isSelected ? 42 : 41,
-            }}
-            data-testid="agent-overlay"
-            data-agent-id={id}
-          >
-            <div className="flex items-center border-border px-8 pt-2 pb-4 gap-5 pixel-panel whitespace-nowrap max-w-2xs">
-              {dotColor && (
-                <span
-                  className={`w-6 h-6 rounded-full shrink-0 ${isActive && !hasPermission && !hasWaiting ? 'pixel-pulse' : ''}`}
-                  style={{ background: dotColor }}
-                />
-              )}
-              <div className="flex flex-col gap-0 overflow-hidden">
-                {nameRowValue && (
+          <Fragment key={id}>
+            <div
+              className="absolute flex flex-col items-center -translate-x-1/2"
+              style={{
+                left: screenX,
+                top: screenY - (hasExtraLines ? 34 : 28),
+                pointerEvents: isSelected ? 'auto' : 'none',
+                opacity: alwaysShowOverlay && !isSelected && !isHovered ? (isSub ? 0.5 : 0.75) : 1,
+                zIndex: isSelected ? 42 : 41,
+              }}
+              data-testid="agent-overlay"
+              data-agent-id={id}
+            >
+              <div className="flex items-center border-border px-8 pt-2 pb-4 gap-5 pixel-panel whitespace-nowrap max-w-2xs">
+                {dotColor && (
                   <span
-                    className="overflow-hidden text-ellipsis block leading-none text-2xs"
-                    style={{ fontWeight: 'bold' }}
-                  >
-                    {nameRowValue}
-                  </span>
+                    className={`w-6 h-6 rounded-full shrink-0 ${isActive && !hasPermission && !hasWaiting ? 'pixel-pulse' : ''}`}
+                    style={{ background: dotColor }}
+                  />
                 )}
-                {teamRoleLabel && (
+                <div className="flex flex-col gap-0 overflow-hidden">
+                  {nameRowValue && (
+                    <span
+                      className="overflow-hidden text-ellipsis block leading-none text-2xs"
+                      style={{ fontWeight: 'bold' }}
+                    >
+                      {nameRowValue}
+                    </span>
+                  )}
+                  {teamRoleLabel && (
+                    <span
+                      className="overflow-hidden text-ellipsis block leading-none"
+                      style={{
+                        fontSize: '18px',
+                        color: ch.isTeamLead ? TEAM_LEAD_COLOR : TEAM_ROLE_COLOR,
+                        fontWeight: ch.isTeamLead ? 'bold' : undefined,
+                      }}
+                    >
+                      {teamRoleLabel}
+                    </span>
+                  )}
                   <span
                     className="overflow-hidden text-ellipsis block leading-none"
                     style={{
-                      fontSize: '18px',
-                      color: ch.isTeamLead ? TEAM_LEAD_COLOR : TEAM_ROLE_COLOR,
-                      fontWeight: ch.isTeamLead ? 'bold' : undefined,
+                      fontSize: isSub ? '20px' : '22px',
+                      fontStyle: isSub ? 'italic' : undefined,
                     }}
                   >
-                    {teamRoleLabel}
+                    {activityText}
                   </span>
-                )}
-                <span
-                  className="overflow-hidden text-ellipsis block leading-none"
-                  style={{
-                    fontSize: isSub ? '20px' : '22px',
-                    fontStyle: isSub ? 'italic' : undefined,
-                  }}
-                >
-                  {activityText}
-                </span>
-                {ch.folderName && (
-                  <span className="text-2xs leading-none overflow-hidden text-ellipsis block">
-                    {ch.folderName}
-                  </span>
+                  {ch.folderName && (
+                    <span className="text-2xs leading-none overflow-hidden text-ellipsis block">
+                      {ch.folderName}
+                    </span>
+                  )}
+                </div>
+                {isSelected && !isSub && (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onCloseAgent(id);
+                    }}
+                    title="Close agent"
+                    className="ml-2 shrink-0 leading-none"
+                  >
+                    ×
+                  </Button>
                 )}
               </div>
-              {isSelected && !isSub && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onCloseAgent(id);
-                  }}
-                  title="Close agent"
-                  className="ml-2 shrink-0 leading-none"
-                >
-                  ×
-                </Button>
-              )}
-            </div>
-            {showContextGauge && (
-              <div
-                style={{
-                  width: CONTEXT_GAUGE_WIDTH_PX,
-                  height: CONTEXT_GAUGE_HEIGHT_PX,
-                  background: CONTEXT_GAUGE_BG,
-                  marginTop: 2,
-                }}
-                title={`${Math.round(contextRatio * 100)}% context used (${(ch.contextTokens / 1000).toFixed(0)}k of ${(ch.maxContextTokens / 1000).toFixed(0)}k tokens)`}
-                data-testid="context-gauge"
-                data-context-pct={Math.round(contextRatio * 100)}
-              >
+              {showContextGauge && (
                 <div
                   style={{
-                    width: `${Math.min(contextRatio * 100, 100)}%`,
-                    height: '100%',
-                    background: getFuelColor(contextRatio),
+                    width: CONTEXT_GAUGE_WIDTH_PX,
+                    height: CONTEXT_GAUGE_HEIGHT_PX,
+                    background: CONTEXT_GAUGE_BG,
+                    marginTop: 2,
                   }}
-                />
-              </div>
-            )}
-          </div>
+                  title={`${Math.round(contextRatio * 100)}% context used (${(ch.contextTokens / 1000).toFixed(0)}k of ${(ch.maxContextTokens / 1000).toFixed(0)}k tokens)`}
+                  data-testid="context-gauge"
+                  data-context-pct={Math.round(contextRatio * 100)}
+                >
+                  <div
+                    style={{
+                      width: `${Math.min(contextRatio * 100, 100)}%`,
+                      height: '100%',
+                      background: getFuelColor(contextRatio),
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+            {nameplate}
+          </Fragment>
         );
       })}
     </>

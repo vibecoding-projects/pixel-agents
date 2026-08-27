@@ -65,6 +65,14 @@ interface FurnitureAsset {
   frame?: number;
 }
 
+export interface LaunchAgentFailure {
+  folderPath: string;
+  reason: string;
+  /** Monotonic per-refusal counter — a repeated identical failure must still
+   *  re-open the New-agent form, so consumers key effects on this. */
+  seq: number;
+}
+
 export interface WorkspaceFolder {
   name: string;
   path: string;
@@ -89,6 +97,8 @@ interface ExtensionMessageState {
   watchAllSessions: boolean;
   setWatchAllSessions: (v: boolean) => void;
   alwaysShowLabels: boolean;
+  /** Nameplate under every character (settingsLoaded, default true). */
+  showTerminalNames: boolean;
   ghostHeadlessAgents: boolean;
   setGhostHeadlessAgents: (v: boolean) => void;
   hooksEnabled: boolean;
@@ -115,6 +125,9 @@ interface ExtensionMessageState {
   // Standalone pty terminals
   /** MRU starting folders for the New-agent form (settingsLoaded). */
   recentAgentFolders: string[];
+  /** Latest refused launchAgent (launchAgentFailed). `seq` increments per
+   *  refusal so a repeat of the same bad folder still re-triggers effects. */
+  launchAgentFailure: LaunchAgentFailure | null;
   /** Agents whose terminal is a server-owned pty (terminal band membership). */
   ptyBackedByAgent: Record<number, boolean>;
   /** User-chosen display names (New-agent form / agentRenamed). */
@@ -155,6 +168,7 @@ export function useExtensionMessages(
   const [extensionVersion, setExtensionVersion] = useState('');
   const [watchAllSessions, setWatchAllSessions] = useState(false);
   const [alwaysShowLabels, setAlwaysShowLabels] = useState(false);
+  const [showTerminalNames, setShowTerminalNames] = useState(true);
   const [ghostHeadlessAgents, setGhostHeadlessAgentsState] = useState(false);
   const [hooksEnabled, setHooksEnabled] = useState(true);
   const [hooksInstalled, setHooksInstalled] = useState<Record<string, boolean>>({});
@@ -169,6 +183,8 @@ export function useExtensionMessages(
   const [showAreas, setShowAreas] = useState(false);
   // ── Standalone pty terminals ──
   const [recentAgentFolders, setRecentAgentFolders] = useState<string[]>([]);
+  const [launchAgentFailure, setLaunchAgentFailure] = useState<LaunchAgentFailure | null>(null);
+  const launchFailureSeqRef = useRef(0);
   const [ptyBackedByAgent, setPtyBackedByAgent] = useState<Record<number, boolean>>({});
   const [customTitles, setCustomTitles] = useState<Record<number, string>>({});
   const [terminalNames, setTerminalNames] = useState<Record<number, string>>({});
@@ -305,6 +321,13 @@ export function useExtensionMessages(
         if (os.characters.size > 0) {
           saveAgentSeats(os);
         }
+      } else if (msg.type === 'launchAgentFailed') {
+        launchFailureSeqRef.current += 1;
+        setLaunchAgentFailure({
+          folderPath: msg.folderPath as string,
+          reason: msg.reason as string,
+          seq: launchFailureSeqRef.current,
+        });
       } else if (msg.type === 'agentCreated') {
         const id = msg.id as number;
         if (msg.ptyBacked === true) {
@@ -771,6 +794,9 @@ export function useExtensionMessages(
         if (typeof msg.watchAllSessions === 'boolean') {
           setWatchAllSessions(msg.watchAllSessions as boolean);
         }
+        if (typeof msg.showTerminalNames === 'boolean') {
+          setShowTerminalNames(msg.showTerminalNames as boolean);
+        }
         if (typeof msg.alwaysShowLabels === 'boolean') {
           setAlwaysShowLabels(msg.alwaysShowLabels as boolean);
         }
@@ -910,6 +936,7 @@ export function useExtensionMessages(
     watchAllSessions,
     setWatchAllSessions,
     alwaysShowLabels,
+    showTerminalNames,
     ghostHeadlessAgents,
     setGhostHeadlessAgents: applyGhostHeadlessAgents,
     hooksEnabled,
@@ -934,6 +961,7 @@ export function useExtensionMessages(
     showAreas,
     setShowAreas,
     recentAgentFolders,
+    launchAgentFailure,
     ptyBackedByAgent,
     customTitles,
     terminalNames,

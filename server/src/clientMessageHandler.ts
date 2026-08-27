@@ -80,6 +80,7 @@ export interface ClientMessageContext {
 const KEY_SOUND_ENABLED = 'pixel-agents.soundEnabled';
 const KEY_LAST_SEEN_VERSION = 'pixel-agents.lastSeenVersion';
 const KEY_ALWAYS_SHOW_LABELS = 'pixel-agents.alwaysShowLabels';
+const KEY_SHOW_TERMINAL_NAMES = 'pixel-agents.showTerminalNames';
 const KEY_GHOST_HEADLESS_AGENTS = 'pixel-agents.ghostHeadlessAgents';
 const KEY_WATCH_ALL_SESSIONS = 'pixel-agents.watchAllSessions';
 const KEY_HOOKS_INFO_SHOWN = 'pixel-agents.hooksInfoShown';
@@ -179,6 +180,9 @@ export function handleClientMessage(
       adapter?.setSetting(KEY_LAST_SEEN_VERSION, msg.version as string);
       break;
 
+    case 'setShowTerminalNames':
+      adapter?.setSetting(KEY_SHOW_TERMINAL_NAMES, msg.enabled);
+      break;
     case 'setAlwaysShowLabels':
       adapter?.setSetting(KEY_ALWAYS_SHOW_LABELS, msg.enabled);
       break;
@@ -290,6 +294,17 @@ export function handleClientMessage(
 
     case 'launchAgent': {
       if (!ctx.privileged || !runtime?.ptyHost || !ctx.provider || !ctx.launchCwd) break;
+      const rawFolder = typeof msg.folderPath === 'string' ? msg.folderPath.trim() : '';
+      if (rawFolder && !resolveDefaultCwd(rawFolder)) {
+        // A folder the user typed that doesn't resolve is a refusal, not a
+        // silent fallback — spawning in the wrong directory looks like success.
+        send({
+          type: 'launchAgentFailed',
+          folderPath: rawFolder,
+          reason: `Folder not found: ${rawFolder}`,
+        });
+        break;
+      }
       const id = launchAgentStandalone(
         {
           folderPath: msg.folderPath as string | undefined,
@@ -480,6 +495,7 @@ function sendSettingsLoaded(
     extensionVersion: process.env.PIXEL_AGENTS_VERSION ?? '',
     watchAllSessions,
     alwaysShowLabels: adapter?.getSetting(KEY_ALWAYS_SHOW_LABELS, false) ?? false,
+    showTerminalNames: adapter?.getSetting(KEY_SHOW_TERMINAL_NAMES, true) ?? true,
     ghostHeadlessAgents: adapter?.getSetting(KEY_GHOST_HEADLESS_AGENTS, false) ?? false,
     hooksEnabled,
     hooksInfoShown: adapter?.getSetting(KEY_HOOKS_INFO_SHOWN, false) ?? false,

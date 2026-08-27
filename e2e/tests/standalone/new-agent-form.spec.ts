@@ -63,6 +63,48 @@ test.describe('Standalone / New-agent form', () => {
     await expect(dialog.getByRole('button', { name: spawnFolder })).toBeVisible();
   });
 
+  test('a folder that does not resolve refuses the spawn and surfaces the error @area:agent-form', async ({
+    page,
+    standalone,
+  }) => {
+    await standalone.drainMessages();
+
+    await page.getByRole('button', { name: '+ Agent' }).click();
+    const dialog = page.getByRole('dialog', { name: 'New agent' });
+    await expect(dialog).toBeVisible();
+    await page.getByLabel('Starting folder').fill('Desktop/not-a-real-dir-xyz');
+    await page.getByRole('button', { name: 'Spawn' }).click();
+
+    // The server refuses instead of silently spawning in its own cwd; the
+    // form comes back with the rejected folder and the reason.
+    await expect(dialog.getByText(/Folder not found/)).toBeVisible();
+    await expect(page.getByLabel('Starting folder')).toHaveValue('Desktop/not-a-real-dir-xyz');
+    const messages = await standalone.drainMessages();
+    expect(messages.some((m) => m.type === 'launchAgentFailed')).toBe(true);
+    // No character, no terminal band — nothing was spawned.
+    await page.waitForTimeout(500);
+    await expectOverlayCount(page, 0);
+    await expect(page.getByTestId('terminal-band')).toBeHidden();
+  });
+
+  test('a home-relative folder (no ~, no leading slash) spawns normally @area:agent-form', async ({
+    page,
+    standalone,
+  }) => {
+    fs.mkdirSync(path.join(standalone.tmpHome, 'projects', 'app'), { recursive: true });
+    await setSettings(page, { alwaysShowLabels: true });
+
+    await page.getByRole('button', { name: '+ Agent' }).click();
+    const dialog = page.getByRole('dialog', { name: 'New agent' });
+    await expect(dialog).toBeVisible();
+    await page.getByLabel('Starting folder').fill('projects/app');
+    await page.getByRole('button', { name: 'Spawn' }).click();
+
+    await expect(dialog).toBeHidden();
+    await expect(page.getByTestId('terminal-band')).toBeVisible({ timeout: SPAWN_TIMEOUT_MS });
+    await expectOverlayCount(page, 1, SPAWN_TIMEOUT_MS);
+  });
+
   test('an unprivileged page sees the character but never receives ptyData @area:agent-form', async ({
     page,
     context,

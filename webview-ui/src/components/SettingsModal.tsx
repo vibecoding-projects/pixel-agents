@@ -3,6 +3,7 @@ import { useRef, useState } from 'react';
 import { isSoundEnabled, setSoundEnabled } from '../notificationSound.js';
 import { isBrowserRuntime } from '../runtime.js';
 import { transport } from '../transport/index.js';
+import type { PanelPosition } from './terminal/panelPosition.js';
 import { Button } from './ui/Button.js';
 import { Checkbox } from './ui/Checkbox.js';
 import { MenuItem } from './ui/MenuItem.js';
@@ -15,6 +16,8 @@ interface SettingsModalProps {
   onToggleDebugMode: () => void;
   alwaysShowOverlay: boolean;
   onToggleAlwaysShowOverlay: () => void;
+  showNameplates: boolean;
+  onToggleShowNameplates: () => void;
   /** Whether headless agents (adopted, no terminal to focus) render translucent. */
   ghostHeadlessAgents: boolean;
   onToggleGhostHeadlessAgents: () => void;
@@ -36,6 +39,9 @@ interface SettingsModalProps {
   onExportLayout: () => void;
   /** Browser-native layout import from a chosen file (standalone only). */
   onImportLayout: (file: File) => void;
+  /** Terminal band dock side (standalone only — the band renders only there). */
+  panelPosition: PanelPosition;
+  onChangePanelPosition: (p: PanelPosition) => void;
 }
 
 export function SettingsModal({
@@ -45,6 +51,10 @@ export function SettingsModal({
   onToggleDebugMode,
   alwaysShowOverlay,
   onToggleAlwaysShowOverlay,
+  showNameplates,
+  onToggleShowNameplates,
+  panelPosition,
+  onChangePanelPosition,
   ghostHeadlessAgents,
   onToggleGhostHeadlessAgents,
   externalAssetDirectories,
@@ -194,6 +204,31 @@ export function SettingsModal({
         checked={alwaysShowOverlay}
         onChange={onToggleAlwaysShowOverlay}
       />
+      <Checkbox
+        label="Show Agent Names"
+        checked={showNameplates}
+        onChange={onToggleShowNameplates}
+      />
+      {/* Terminal band dock side — standalone only (VS Code has no in-office
+          terminal band; its terminals live in the editor). */}
+      {isBrowserRuntime && (
+        <div className="flex items-center gap-8 py-4">
+          <span className="text-2xs text-text-muted">Terminal Position</span>
+          <div className="flex gap-4" role="radiogroup" aria-label="Terminal Position">
+            {(['left', 'bottom', 'right'] as const).map((p) => (
+              <Button
+                key={p}
+                size="sm"
+                variant={panelPosition === p ? 'accent' : 'default'}
+                onClick={() => onChangePanelPosition(p)}
+                aria-pressed={panelPosition === p}
+              >
+                {p.charAt(0).toUpperCase() + p.slice(1)}
+              </Button>
+            ))}
+          </div>
+        </div>
+      )}
       {/* Headless agents are the office's only terminal-less citizens in VS Code.
           Standalone has no terminals at all, so nothing there would ever ghost. */}
       {!isBrowserRuntime && (
