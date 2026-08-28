@@ -11,7 +11,12 @@ import { MigrationNotice } from './components/MigrationNotice.js';
 import { NewAgentModal } from './components/NewAgentModal.js';
 import { SettingsModal } from './components/SettingsModal.js';
 import type { PanelPosition } from './components/terminal/panelPosition.js';
-import { loadPanelPosition, savePanelPosition } from './components/terminal/panelPosition.js';
+import {
+  loadPanelOpen,
+  loadPanelPosition,
+  savePanelOpen,
+  savePanelPosition,
+} from './components/terminal/panelPosition.js';
 import { TerminalBand } from './components/terminal/TerminalBand.js';
 import { Tooltip } from './components/Tooltip.js';
 import { Modal } from './components/ui/Modal.js';
@@ -113,6 +118,17 @@ function App() {
 
   // ── Standalone terminal band (browser runtime only) ──
   const [focusedTerminalId, setFocusedTerminalId] = useState<number | null>(null);
+  // Terminal band visibility — toggles with character selection (select a
+  // pty-backed agent → open on it; deselect → close), persisted per browser.
+  const [terminalOpen, setTerminalOpenState] = useState(() => loadPanelOpen());
+  const setTerminalOpen = useCallback((open: boolean) => {
+    setTerminalOpenState(open);
+    savePanelOpen(open);
+  }, []);
+  // Set when the user submits the New-agent form; the next pty agent to
+  // appear auto-opens the band focused on itself (v2's openForNewAgent).
+  const pendingSpawnOpenRef = useRef(false);
+  const prevRailIdsRef = useRef<Set<number>>(new Set());
   const [isNewAgentOpen, setIsNewAgentOpen] = useState(false);
   // A refused launchAgent re-opens the form with the rejected folder and the
   // server's reason — the alternative (silently spawning in the server's own
@@ -135,6 +151,19 @@ function App() {
         })),
     [agents, ptyBackedByAgent, customTitles, terminalNames],
   );
+
+  // A spawn the user just submitted auto-opens the band on the new agent as
+  // soon as its rail entry materializes (v2's openForNewAgent).
+  useEffect(() => {
+    const prev = prevRailIdsRef.current;
+    const fresh = railAgents.filter((a) => !prev.has(a.id));
+    prevRailIdsRef.current = new Set(railAgents.map((a) => a.id));
+    if (pendingSpawnOpenRef.current && fresh.length > 0) {
+      pendingSpawnOpenRef.current = false;
+      setFocusedTerminalId(fresh[fresh.length - 1].id);
+      setTerminalOpen(true);
+    }
+  }, [railAgents, setTerminalOpen]);
 
   // Show migration notice once layout reset is detected
   const [migrationNoticeDismissed, setMigrationNoticeDismissed] = useState(false);
@@ -314,6 +343,26 @@ function App() {
     [ptyBackedByAgent],
   );
 
+  // Selection drives the band: selecting a character whose agent has a
+  // terminal opens the band on it; deselecting (empty-floor click, same-agent
+  // toggle, seat click) closes it. Terminal-less agents leave it untouched.
+  const handleSelectionChange = useCallback(
+    (selectedId: number | null) => {
+      if (selectedId === null) {
+        setTerminalOpen(false);
+        return;
+      }
+      const os = getOfficeState();
+      const meta = os.subagentMeta.get(selectedId);
+      const resolved = meta ? meta.parentAgentId : selectedId;
+      if (ptyBackedByAgent[resolved]) {
+        setFocusedTerminalId(resolved);
+        setTerminalOpen(true);
+      }
+    },
+    [ptyBackedByAgent, setTerminalOpen],
+  );
+
   const officeState = getOfficeState();
 
   // Bump the focused agent's character on real pty bytes so it animates as
@@ -425,6 +474,7 @@ function App() {
         <OfficeCanvas
           officeState={officeState}
           onClick={handleClick}
+          onSelectionChange={handleSelectionChange}
           isEditMode={editor.isEditMode}
           editorState={editorState}
           onEditorTileAction={editor.handleEditorTileAction}
@@ -621,6 +671,7 @@ function App() {
           failure={launchAgentFailure}
           recentFolders={recentAgentFolders}
           onSpawn={(spawn) => {
+            pendingSpawnOpenRef.current = true;
             transport.send({ type: 'launchAgent', ...spawn });
             setIsNewAgentOpen(false);
           }}
@@ -712,7 +763,7 @@ function App() {
           />
         )}
       </div>
-      {isBrowserRuntime && hasPrivilegedToken && railAgents.length > 0 && (
+      {isBrowserRuntime && hasPrivilegedToken && railAgents.length > 0 && terminalOpen && (
         <TerminalBand
           agents={railAgents}
           focusedId={focusedTerminalId}

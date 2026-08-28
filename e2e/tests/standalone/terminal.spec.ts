@@ -67,6 +67,43 @@ test.describe('Standalone / Terminal band', () => {
     expect(bottomBox.width).toBeGreaterThan(viewport.width * 0.9);
   });
 
+  test('the band toggles with character selection: spawn opens, floor click closes, character click reopens @area:terminal', async ({
+    page,
+    standalone,
+  }) => {
+    await standalone.drainMessages();
+    await spawnFromForm(page);
+
+    // Spawning auto-opens the band on the new agent.
+    const band = page.getByTestId('terminal-band');
+    await expect(band).toBeVisible({ timeout: SPAWN_TIMEOUT_MS });
+
+    // The nameplate anchors to the character's feet — its box gives us real
+    // canvas coordinates for a genuine user click on the sprite above it.
+    const nameplate = page.getByTestId('agent-nameplate');
+    await expect(nameplate).toHaveCount(1, { timeout: SPAWN_TIMEOUT_MS });
+
+    // Click empty space: deselects → band closes. Upper-middle of the canvas
+    // is void above the office map — clear of the zoom buttons (top-left),
+    // toasts (right edge), and the bottom toolbar.
+    const canvas = page.locator('canvas').first();
+    const canvasBox = (await canvas.boundingBox())!;
+    const emptyX = canvasBox.x + canvasBox.width * 0.35;
+    const emptyY = canvasBox.y + 60;
+    await page.mouse.click(emptyX, emptyY);
+    await expect(band).toBeHidden();
+
+    // Click the character: selects → band reopens.
+    const np = (await nameplate.boundingBox())!;
+    await page.mouse.click(np.x + np.width / 2, np.y - 10);
+    await expect(band).toBeVisible();
+
+    // Click the character again: toggle off (same-agent deselect).
+    const np2 = (await nameplate.boundingBox())!;
+    await page.mouse.click(np2.x + np2.width / 2, np2.y - 10);
+    await expect(band).toBeHidden();
+  });
+
   test('the rail/pane divider drags like DevTools and persists the width @area:terminal', async ({
     page,
     standalone,

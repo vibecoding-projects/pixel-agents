@@ -9,7 +9,11 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { WANDER_MOVES_BEFORE_REST_MAX, WANDER_MOVES_BEFORE_REST_MIN } from '../src/constants.js';
+import {
+  AWAITING_REST_DELAY_MS,
+  WANDER_MOVES_BEFORE_REST_MAX,
+  WANDER_MOVES_BEFORE_REST_MIN,
+} from '../src/constants.js';
 import {
   createCharacter,
   findNearestFreeRestSeat,
@@ -45,14 +49,62 @@ describe('createCharacter', () => {
 });
 
 describe('shouldBeSeated', () => {
-  it('is true when active OR awaiting', () => {
+  it('is true when active, regardless of awaiting age', () => {
     const ch = createCharacter(1, 0, null, null);
     expect(shouldBeSeated(ch)).toBe(false);
     ch.isActive = true;
-    expect(shouldBeSeated(ch)).toBe(true);
+    ch.awaitingSince = 1; // ancient — active still wins
+    expect(shouldBeSeated(ch, 10_000_000)).toBe(true);
+  });
+
+  it('awaiting holds the desk only within AWAITING_REST_DELAY_MS, then releases', () => {
+    const ch = createCharacter(1, 0, null, null);
+    const now = 1_000_000_000;
+    ch.awaitingSince = now - 1000;
+    expect(shouldBeSeated(ch, now)).toBe(true);
+    ch.awaitingSince = now - AWAITING_REST_DELAY_MS + 1;
+    expect(shouldBeSeated(ch, now)).toBe(true);
+    ch.awaitingSince = now - AWAITING_REST_DELAY_MS - 1;
+    expect(shouldBeSeated(ch, now)).toBe(false);
+  });
+
+  it('an expired awaiting latch steps the character off the desk in updateCharacter', () => {
+    const tileMap = openTileMap(6, 6);
+    const seats = new Map<string, Seat>([['w1', makeSeat('w1', 2, 2, 'work')]]);
+    const ch = createCharacter(1, 0, null, null);
+    ch.state = CharacterState.TYPE;
+    ch.seatId = 'w1';
+    ch.tileCol = 2;
+    ch.tileRow = 2;
+    ch.seatTimer = 0;
     ch.isActive = false;
-    ch.awaitingSince = 123;
-    expect(shouldBeSeated(ch)).toBe(true);
+
+    const now = 1_000_000_000;
+    // Fresh latch: stays typing at the desk.
+    ch.awaitingSince = now - 1000;
+    updateCharacter(
+      ch,
+      0.016,
+      getWalkableTiles(tileMap, new Set()),
+      seats,
+      tileMap,
+      new Set(),
+      now,
+    );
+    expect(ch.state).toBe(CharacterState.TYPE);
+
+    // Expired latch: releases the desk (IDLE, step-off pause scheduled).
+    ch.awaitingSince = now - AWAITING_REST_DELAY_MS - 1;
+    updateCharacter(
+      ch,
+      0.016,
+      getWalkableTiles(tileMap, new Set()),
+      seats,
+      tileMap,
+      new Set(),
+      now,
+    );
+    expect(ch.state).toBe(CharacterState.IDLE);
   });
 });
 
@@ -184,7 +236,7 @@ describe('updateCharacter — rest-seat FSM', () => {
     expect(ch.path.length).toBeGreaterThan(0);
   });
 
-  it('awaitingSince alone keeps the character seated at the work seat', () => {
+  it('a fresh awaitingSince alone keeps the character seated at the work seat', () => {
     const tileMap = openTileMap(5, 5);
     const workSeat = makeSeat('work-1', 2, 2, 'work', true);
     const seats = new Map<string, Seat>([['work-1', workSeat]]);
@@ -194,11 +246,12 @@ describe('updateCharacter — rest-seat FSM', () => {
     const ch = createCharacter(6, 0, 'work-1', workSeat);
     ch.state = CharacterState.TYPE;
     ch.isActive = false;
-    ch.awaitingSince = 123;
+    const now = 1_000_000_000;
+    ch.awaitingSince = now; // fresh latch — inside the desk-hold window
     ch.seatTimer = 0;
 
     for (let i = 0; i < 50; i++) {
-      updateCharacter(ch, 1, walkableTiles, seats, tileMap, blockedTiles);
+      updateCharacter(ch, 1, walkableTiles, seats, tileMap, blockedTiles, now + i);
       expect(ch.state).toBe(CharacterState.TYPE);
     }
   });

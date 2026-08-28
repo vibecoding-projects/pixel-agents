@@ -27,6 +27,10 @@ import { EditTool, TILE_SIZE } from '../types.js';
 import { computeNormalModeCursor } from './officeCanvasCursor.js';
 
 interface OfficeCanvasProps {
+  /** Fires after every click-driven agent-selection mutation (select, toggle
+   *  off, seat-click clear, empty-space deselect) with the new selection.
+   *  Drives the terminal band's open/close in App. */
+  onSelectionChange?: (selectedAgentId: number | null) => void;
   officeState: OfficeState;
   onClick: (agentId: number) => void;
   isEditMode: boolean;
@@ -54,6 +58,7 @@ interface OfficeCanvasProps {
 export function OfficeCanvas({
   officeState,
   onClick,
+  onSelectionChange,
   isEditMode,
   editorState,
   onEditorTileAction,
@@ -747,6 +752,7 @@ export function OfficeCanvas({
           officeState.selectedAgentId = hitId;
           officeState.cameraFollowId = hitId;
         }
+        onSelectionChange?.(officeState.selectedAgentId);
         onClick(hitId); // still focus terminal
         return;
       }
@@ -779,12 +785,14 @@ export function OfficeCanvas({
                   officeState.sendToSeat(officeState.selectedAgentId);
                   officeState.selectedAgentId = null;
                   officeState.cameraFollowId = null;
+                  onSelectionChange?.(null);
                   return;
                 } else if (!seat.assigned) {
                   // Clicked available seat — reassign
                   officeState.reassignSeat(officeState.selectedAgentId, seatId);
                   officeState.selectedAgentId = null;
                   officeState.cameraFollowId = null;
+                  onSelectionChange?.(null);
                   transport.send({
                     type: 'saveAgentSeats',
                     seats: officeState.getPersistableSeats(),
@@ -799,8 +807,11 @@ export function OfficeCanvas({
         officeState.selectedAgentId = null;
         officeState.cameraFollowId = null;
       }
+      // Any empty-space click is a "clicked out", selection or not — a band
+      // opened by a spawn (no canvas selection) must still close on it.
+      onSelectionChange?.(null);
     },
-    [officeState, onClick, screenToWorld, screenToTile, isEditMode],
+    [officeState, onClick, onSelectionChange, screenToWorld, screenToTile, isEditMode],
   );
 
   const handleMouseLeave = useCallback(() => {

@@ -777,10 +777,14 @@ export class OfficeState {
   }
 
   /** Latch/clear the awaiting-user timestamp — see `shouldBeSeated` in
-   *  characters.ts, which treats a set latch the same as `isActive`. */
+   *  characters.ts, which holds the desk while the latch is FRESH (it expires
+   *  after AWAITING_REST_DELAY_MS). An already-set latch is preserved so a
+   *  late idle_prompt can't restart the desk-hold clock the turn-end Stop
+   *  already started. */
   setAwaitingSince(id: number, since: number | null): void {
     const ch = this.characters.get(id);
     if (!ch) return;
+    if (since !== null && ch.awaitingSince !== null) return;
     ch.awaitingSince = since;
   }
 

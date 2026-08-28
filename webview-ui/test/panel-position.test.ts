@@ -10,8 +10,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  loadPanelOpen,
   loadPanelPosition,
   loadRailWidth,
+  savePanelOpen,
   savePanelPosition,
   saveRailWidth,
 } from '../src/components/terminal/panelPosition.js';
@@ -73,6 +75,47 @@ describe('panelPosition persistence', () => {
     };
     expect(loadPanelPosition()).toBe('bottom');
     expect(() => savePanelPosition('left')).not.toThrow();
+  });
+});
+
+describe('panelOpen persistence', () => {
+  let store: Record<string, string>;
+
+  beforeEach(() => {
+    store = stubLocalStorage();
+  });
+
+  afterEach(() => {
+    delete (globalThis as { localStorage?: unknown }).localStorage;
+  });
+
+  it('defaults to closed with nothing stored', () => {
+    expect(loadPanelOpen()).toBe(false);
+  });
+
+  it('round-trips open and closed', () => {
+    savePanelOpen(true);
+    expect(loadPanelOpen()).toBe(true);
+    savePanelOpen(false);
+    expect(loadPanelOpen()).toBe(false);
+  });
+
+  it('falls back to closed on a corrupt stored value', () => {
+    store['pixel-agents.terminalOpen'] = 'maybe';
+    expect(loadPanelOpen()).toBe(false);
+  });
+
+  it('survives a throwing localStorage', () => {
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      getItem: () => {
+        throw new Error('blocked');
+      },
+      setItem: () => {
+        throw new Error('blocked');
+      },
+    };
+    expect(loadPanelOpen()).toBe(false);
+    expect(() => savePanelOpen(true)).not.toThrow();
   });
 });
 

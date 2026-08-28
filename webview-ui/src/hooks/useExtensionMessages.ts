@@ -624,10 +624,11 @@ export function useExtensionMessages(
           return { ...prev, [id]: status };
         });
         os.setAgentActive(id, status === 'active');
-        os.setAwaitingSince(
-          id,
-          status === 'waiting' && msg.awaitingInput === true ? Date.now() : null,
-        );
+        // Any turn-end waiting starts the desk-hold clock ("short desk wait,
+        // then rest") — not just idle_prompt's awaitingInput, which arrives a
+        // minute late and (via the latch-preserve in setAwaitingSince) must
+        // not restart it. Anything non-waiting clears the latch.
+        os.setAwaitingSince(id, status === 'waiting' ? Date.now() : null);
         if (status === 'waiting') {
           os.showWaitingBubble(id, msg.awaitingInput === true);
           playDoneSound();

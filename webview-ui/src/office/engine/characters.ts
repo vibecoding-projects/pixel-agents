@@ -1,4 +1,5 @@
 import {
+  AWAITING_REST_DELAY_MS,
   DEFAULT_MAX_CONTEXT_TOKENS,
   STEP_OFF_PAUSE_MAX_SEC,
   STEP_OFF_PAUSE_MIN_SEC,
@@ -97,10 +98,15 @@ export function createCharacter(
   };
 }
 
-/** @internal — exported for tests. At the work seat when actively working
- *  OR when the awaiting-user latch is set; both read visually as "at the desk". */
-export function shouldBeSeated(ch: Character): boolean {
-  return ch.isActive || ch.awaitingSince != null;
+/** @internal — exported for tests. At the work seat when actively working OR
+ *  while the awaiting-user latch is fresh. The latch EXPIRES after
+ *  AWAITING_REST_DELAY_MS ("short desk wait, then rest"): an ignored agent
+ *  releases the desk and follows the normal wander→couch flow; any new
+ *  activity (isActive) walks it back. */
+export function shouldBeSeated(ch: Character, now: number = Date.now()): boolean {
+  return (
+    ch.isActive || (ch.awaitingSince != null && now - ch.awaitingSince < AWAITING_REST_DELAY_MS)
+  );
 }
 
 /** @internal */
@@ -133,6 +139,7 @@ export function updateCharacter(
   seats: Map<string, Seat>,
   tileMap: TileTypeVal[][],
   blockedTiles: Set<string>,
+  now: number = Date.now(),
 ): void {
   ch.frameTimer += dt;
 
@@ -143,7 +150,7 @@ export function updateCharacter(
         ch.frame = (ch.frame + 1) % 2;
       }
       // Work started while resting on a couch — release it and head to the desk.
-      if (shouldBeSeated(ch) && ch.restSeatId) {
+      if (shouldBeSeated(ch, now) && ch.restSeatId) {
         const rest = seats.get(ch.restSeatId);
         if (rest) rest.assigned = false;
         ch.restSeatId = null;
@@ -152,7 +159,7 @@ export function updateCharacter(
         ch.frameTimer = 0;
         break;
       }
-      if (!shouldBeSeated(ch)) {
+      if (!shouldBeSeated(ch, now)) {
         if (ch.seatTimer > 0) {
           ch.seatTimer -= dt;
           break;
@@ -173,7 +180,7 @@ export function updateCharacter(
     case CharacterState.IDLE: {
       ch.frame = 0;
       if (ch.seatTimer < 0) ch.seatTimer = 0; // clear turn-end sentinel
-      if (shouldBeSeated(ch)) {
+      if (shouldBeSeated(ch, now)) {
         if (ch.restSeatId) {
           const rest = seats.get(ch.restSeatId);
           if (rest) rest.assigned = false;
@@ -282,7 +289,7 @@ export function updateCharacter(
         ch.x = center.x;
         ch.y = center.y;
 
-        if (shouldBeSeated(ch)) {
+        if (shouldBeSeated(ch, now)) {
           if (!ch.seatId) {
             ch.state = CharacterState.TYPE;
           } else {
@@ -342,7 +349,7 @@ export function updateCharacter(
       }
 
       // If should be seated (active or awaiting user) while wandering, repath to seat
-      if (shouldBeSeated(ch) && ch.seatId) {
+      if (shouldBeSeated(ch, now) && ch.seatId) {
         const seat = seats.get(ch.seatId);
         if (seat) {
           const lastStep = ch.path[ch.path.length - 1];

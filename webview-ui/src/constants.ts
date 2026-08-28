@@ -15,6 +15,10 @@ export const WANDER_PAUSE_MIN_SEC = 2.0;
 export const WANDER_PAUSE_MAX_SEC = 20.0;
 export const WANDER_MOVES_BEFORE_REST_MIN = 3;
 export const WANDER_MOVES_BEFORE_REST_MAX = 6;
+/** How long a waiting-for-input agent holds its desk before wandering off to
+ *  rest ("short desk wait, then rest"): the awaiting latch expires after this
+ *  and the normal wander→couch flow takes over. Any new activity re-seats. */
+export const AWAITING_REST_DELAY_MS = 5 * 60 * 1000;
 /** Short pause after stepping off a chair tile — long enough to read as "left
  *  the desk", short enough not to idle in place looking like it's still working. */
 export const STEP_OFF_PAUSE_MIN_SEC = 0.3;

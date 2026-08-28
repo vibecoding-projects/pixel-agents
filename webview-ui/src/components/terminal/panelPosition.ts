@@ -39,6 +39,25 @@ export function savePanelPosition(position: PanelPosition): void {
   }
 }
 
+// ── Terminal band open/closed (toggles with character selection) ─
+const PANEL_OPEN_KEY = 'pixel-agents.terminalOpen';
+
+export function loadPanelOpen(): boolean {
+  try {
+    return localStorage.getItem(PANEL_OPEN_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function savePanelOpen(open: boolean): void {
+  try {
+    localStorage.setItem(PANEL_OPEN_KEY, String(open));
+  } catch {
+    /* per-browser convenience only — losing it is acceptable */
+  }
+}
+
 // ── Agent rail width (the DevTools-style rail/pane divider) ─────
 const RAIL_WIDTH_KEY = 'pixel-agents.terminalRailWidth';
 
