@@ -1,5 +1,3 @@
-import { TERMINAL_RAIL_WIDTH_PX } from '../../constants.js';
-
 export interface RailAgent {
   id: number;
   label: string;
@@ -10,15 +8,18 @@ interface AgentRailProps {
   focusedId: number | null;
   onFocus: (id: number) => void;
   onClose: (id: number) => void;
+  /** Dragged via the rail/pane divider in TerminalBand (persisted there). */
+  width: number;
 }
 
 /** Vertical list of pty-backed agents on the left edge of the terminal band.
- *  Click focuses that agent's terminal; ✕ closes the agent. */
-export function AgentRail({ agents, focusedId, onFocus, onClose }: AgentRailProps) {
+ *  Click focuses that agent's terminal; ✕ closes the agent. The rail/pane
+ *  divider (TerminalBand) is the visual separator — no own right border. */
+export function AgentRail({ agents, focusedId, onFocus, onClose, width }: AgentRailProps) {
   return (
     <div
-      className="flex flex-col overflow-y-auto border-r-2 border-border"
-      style={{ width: TERMINAL_RAIL_WIDTH_PX, background: 'var(--color-bg)' }}
+      className="flex flex-col overflow-y-auto"
+      style={{ width, flex: `0 0 ${width}px`, background: 'var(--color-bg)' }}
       role="tablist"
       aria-label="Agent terminals"
     >

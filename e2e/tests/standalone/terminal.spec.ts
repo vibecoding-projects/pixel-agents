@@ -67,6 +67,38 @@ test.describe('Standalone / Terminal band', () => {
     expect(bottomBox.width).toBeGreaterThan(viewport.width * 0.9);
   });
 
+  test('the rail/pane divider drags like DevTools and persists the width @area:terminal', async ({
+    page,
+    standalone,
+  }) => {
+    await standalone.drainMessages();
+    await setSettings(page, { alwaysShowLabels: true });
+    await spawnFromForm(page);
+    await expect(page.getByTestId('terminal-band')).toBeVisible({ timeout: SPAWN_TIMEOUT_MS });
+
+    const rail = page.getByRole('tablist', { name: 'Agent terminals' });
+    const divider = page.getByRole('separator', { name: 'Resize agent rail' });
+    const before = (await rail.boundingBox())!;
+
+    // Drag the divider 80px to the right — the rail grows by the same amount.
+    const handleBox = (await divider.boundingBox())!;
+    const startX = handleBox.x + handleBox.width / 2;
+    const startY = handleBox.y + handleBox.height / 2;
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX + 80, startY, { steps: 5 });
+    await page.mouse.up();
+
+    const after = (await rail.boundingBox())!;
+    expect(after.width).toBeGreaterThan(before.width + 60);
+
+    // The dragged width survives a reload (localStorage persistence).
+    await page.reload();
+    await expect(page.getByTestId('terminal-band')).toBeVisible({ timeout: SPAWN_TIMEOUT_MS });
+    const reloaded = (await page.getByRole('tablist', { name: 'Agent terminals' }).boundingBox())!;
+    expect(Math.abs(reloaded.width - after.width)).toBeLessThan(3);
+  });
+
   test('+ Agent spawns a pty agent: character, band, mock invocation @area:terminal', async ({
     page,
     standalone,

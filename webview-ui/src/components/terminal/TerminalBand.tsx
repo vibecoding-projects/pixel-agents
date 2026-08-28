@@ -8,11 +8,14 @@ import {
   TERMINAL_BAND_MAX_WIDTH_PX,
   TERMINAL_BAND_MIN_HEIGHT_PX,
   TERMINAL_BAND_MIN_WIDTH_PX,
+  TERMINAL_RAIL_MAX_WIDTH_PX,
+  TERMINAL_RAIL_MIN_WIDTH_PX,
 } from '../../constants.js';
 import type { PtyEventBus } from '../../office/panel/ptyEventBus.js';
 import type { RailAgent } from './AgentRail.js';
 import { AgentRail } from './AgentRail.js';
 import type { PanelPosition } from './panelPosition.js';
+import { loadRailWidth, saveRailWidth } from './panelPosition.js';
 import { TerminalPane } from './TerminalPane.js';
 
 interface TerminalBandProps {
@@ -96,6 +99,44 @@ export function TerminalBand({
     dragRef.current = null;
   }, []);
 
+  // DevTools-style divider between the agent rail and the terminal pane. The
+  // rail is always LEFT of the pane, so dragging right grows it in every dock
+  // position. Width persists per browser next to the dock side.
+  const [railWidth, setRailWidth] = useState(() => loadRailWidth());
+  const railWidthRef = useRef(railWidth);
+  const railDragRef = useRef<{ start: number; startWidth: number } | null>(null);
+  const railRafRef = useRef<number | null>(null);
+
+  const onRailDividerPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      railDragRef.current = { start: e.clientX, startWidth: railWidth };
+    },
+    [railWidth],
+  );
+
+  const onRailDividerPointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = railDragRef.current;
+    if (!drag) return;
+    const delta = e.clientX - drag.start;
+    if (railRafRef.current !== null) return; // throttle to one update per frame
+    railRafRef.current = requestAnimationFrame(() => {
+      railRafRef.current = null;
+      const next = Math.min(
+        TERMINAL_RAIL_MAX_WIDTH_PX,
+        Math.max(TERMINAL_RAIL_MIN_WIDTH_PX, drag.startWidth + delta),
+      );
+      railWidthRef.current = next;
+      setRailWidth(next);
+    });
+  }, []);
+
+  const onRailDividerPointerUp = useCallback(() => {
+    if (railDragRef.current) saveRailWidth(railWidthRef.current);
+    railDragRef.current = null;
+  }, []);
+
   useEffect(
     () => () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
@@ -132,6 +173,22 @@ export function TerminalBand({
         focusedId={focused?.id ?? null}
         onFocus={onFocus}
         onClose={onClose}
+        width={railWidth}
+      />
+      <div
+        onPointerDown={onRailDividerPointerDown}
+        onPointerMove={onRailDividerPointerMove}
+        onPointerUp={onRailDividerPointerUp}
+        className="h-full cursor-col-resize"
+        style={{
+          width: TERMINAL_BAND_HANDLE_THICKNESS_PX,
+          background: 'var(--color-bg-thumb)',
+          touchAction: 'none',
+          flex: '0 0 auto',
+        }}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize agent rail"
       />
       {focused ? (
         <TerminalPane

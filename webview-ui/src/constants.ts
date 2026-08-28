@@ -337,8 +337,11 @@ export const PTY_ACTIVITY_HOLD_MS = 200;
 /** Minimum spacing between pty-activity bumps — collapses per-byte bursts into
  *  one deadline extension instead of re-computing on every keystroke. */
 export const PTY_ACTIVITY_THROTTLE_MS = 50;
-/** Agent rail width (px) on the left edge of the terminal band. */
-export const TERMINAL_RAIL_WIDTH_PX = 168;
+/** Agent rail (left edge of the terminal band): default width plus the
+ *  clamp range for the DevTools-style drag divider between rail and pane. */
+export const TERMINAL_RAIL_DEFAULT_WIDTH_PX = 120;
+export const TERMINAL_RAIL_MIN_WIDTH_PX = 72;
+export const TERMINAL_RAIL_MAX_WIDTH_PX = 400;
 /** Drag-resize handle thickness (px) — height when the band docks bottom,
  *  width when it docks left/right. */
 export const TERMINAL_BAND_HANDLE_THICKNESS_PX = 6;
