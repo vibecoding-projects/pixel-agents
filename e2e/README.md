@@ -308,11 +308,11 @@ This section is auto-generated. Do not edit between the markers; CI fails on dri
 
 - `e2e/standalone/terminal.spec.ts:35` — Terminal Position docks the band right, left, and back to bottom (Standalone / Terminal band)
 - `e2e/standalone/terminal.spec.ts:70` — the band toggles with character selection: spawn opens, floor click closes, character click reopens (Standalone / Terminal band)
-- `e2e/standalone/terminal.spec.ts:103` — the rail/pane divider drags like DevTools and persists the width (Standalone / Terminal band)
-- `e2e/standalone/terminal.spec.ts:135` — + Agent spawns a pty agent: character, band, mock invocation (Standalone / Terminal band)
-- `e2e/standalone/terminal.spec.ts:156` — typed keystrokes reach the pty and echo back (Standalone / Terminal band)
-- `e2e/standalone/terminal.spec.ts:185` — pty exit shows the Restart control and restart re-invokes claude (Standalone / Terminal band)
-- `e2e/standalone/terminal.spec.ts:222` — a pane mounted AFTER the pty exited still shows the Restart control (Standalone / Terminal band)
+- `e2e/standalone/terminal.spec.ts:107` — the rail/pane divider drags like DevTools and persists the width (Standalone / Terminal band)
+- `e2e/standalone/terminal.spec.ts:139` — + Agent spawns a pty agent: character, band, mock invocation (Standalone / Terminal band)
+- `e2e/standalone/terminal.spec.ts:160` — typed keystrokes reach the pty and echo back (Standalone / Terminal band)
+- `e2e/standalone/terminal.spec.ts:189` — pty exit shows the Restart control and restart re-invokes claude (Standalone / Terminal band)
+- `e2e/standalone/terminal.spec.ts:226` — a pane mounted AFTER the pty exited still shows the Restart control (Standalone / Terminal band)
 
 <!-- END:E2E-INVENTORY -->
 

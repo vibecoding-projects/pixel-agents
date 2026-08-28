@@ -757,7 +757,10 @@ export function OfficeCanvas({
         return;
       }
 
-      // Pet hit: toggle the heart bubble.
+      // Pet hit: toggle the heart bubble. Deliberate asymmetry with the
+      // greeter: petting returns early (band stays open — it isn't a "clicked
+      // out"), while a greeter click falls through to the empty-space path
+      // below and closes the band like any other non-agent click.
       const petId = officeState.getPetAt(pos.worldX, pos.worldY);
       if (petId !== null) {
         const pet = officeState.pets.find((p) => p.id === petId);

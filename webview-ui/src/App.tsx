@@ -122,8 +122,12 @@ function App() {
   // pty-backed agent → open on it; deselect → close), persisted per browser.
   const [terminalOpen, setTerminalOpenState] = useState(() => loadPanelOpen());
   const setTerminalOpen = useCallback((open: boolean) => {
-    setTerminalOpenState(open);
-    savePanelOpen(open);
+    setTerminalOpenState((prev) => {
+      // Skip the localStorage write when nothing changed — every empty-floor
+      // click routes through here.
+      if (prev !== open) savePanelOpen(open);
+      return open;
+    });
   }, []);
   // Set when the user submits the New-agent form; the next pty agent to
   // appear auto-opens the band focused on itself (v2's openForNewAgent).
@@ -134,7 +138,13 @@ function App() {
   // server's reason — the alternative (silently spawning in the server's own
   // cwd) looks like success. Keyed on seq so a repeated refusal re-opens.
   useEffect(() => {
-    if (launchAgentFailure) setIsNewAgentOpen(true);
+    if (launchAgentFailure) {
+      // Disarm the spawn auto-open: the refused launch produced no agent, and
+      // a stale flag would auto-open on the NEXT pty agent from any source
+      // (another tab's spawn included).
+      pendingSpawnOpenRef.current = false;
+      setIsNewAgentOpen(true);
+    }
   }, [launchAgentFailure]);
   const railAgents = useMemo(
     () =>
@@ -151,6 +161,15 @@ function App() {
         })),
     [agents, ptyBackedByAgent, customTitles, terminalNames],
   );
+
+  // Prune a dead terminal focus: the band falls back visually on its own,
+  // but App state (and OfficeCanvas's focusedAgentId prop) must not keep
+  // pointing at a closed agent.
+  useEffect(() => {
+    if (focusedTerminalId !== null && !ptyBackedByAgent[focusedTerminalId]) {
+      setFocusedTerminalId(null);
+    }
+  }, [focusedTerminalId, ptyBackedByAgent]);
 
   // A spawn the user just submitted auto-opens the band on the new agent as
   // soon as its rail entry materializes (v2's openForNewAgent).
@@ -675,7 +694,11 @@ function App() {
             transport.send({ type: 'launchAgent', ...spawn });
             setIsNewAgentOpen(false);
           }}
-          onClose={() => setIsNewAgentOpen(false)}
+          onClose={() => {
+            // Abandoning the form disarms any pending spawn auto-open.
+            pendingSpawnOpenRef.current = false;
+            setIsNewAgentOpen(false);
+          }}
         />
 
         <VersionIndicator

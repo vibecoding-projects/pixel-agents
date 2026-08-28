@@ -15,6 +15,7 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest';
 
+import { AWAITING_REST_DELAY_MS } from '../src/constants.js';
 import { OfficeState } from '../src/office/engine/officeState.js';
 import { buildDynamicCatalog } from '../src/office/layout/furnitureCatalog.js';
 import type { OfficeLayout } from '../src/office/types.js';
@@ -193,6 +194,23 @@ describe('OfficeState rest-claim lifecycle', () => {
 
     os.setAwaitingSince(1, null);
     expect(os.characters.get(1)!.awaitingSince).toBeNull();
+  });
+
+  it('setAwaitingSince preserves a FRESH latch but replaces an expired one', () => {
+    const os = new OfficeState(layoutWithWorkAndRestSeats());
+    os.addAgent(1);
+    const ch = os.characters.get(1)!;
+
+    // Fresh latch: a late idle_prompt must not restart the desk-hold clock.
+    const t0 = 1_000_000_000;
+    os.setAwaitingSince(1, t0);
+    os.setAwaitingSince(1, t0 + 60_000);
+    expect(ch.awaitingSince).toBe(t0);
+
+    // Expired latch: a NEW turn-end waiting must re-latch, or the agent never
+    // desk-holds again once the first latch aged out (stale-preserve bug).
+    os.setAwaitingSince(1, t0 + AWAITING_REST_DELAY_MS + 60_000);
+    expect(ch.awaitingSince).toBe(t0 + AWAITING_REST_DELAY_MS + 60_000);
   });
 
   it('addSubagent produces a sub-character with isActive true', () => {

@@ -2,6 +2,7 @@ import { pickDiversePalette } from '../../../../core/src/paletteUtils.js';
 import {
   AUTO_ON_FACING_DEPTH,
   AUTO_ON_SIDE_DEPTH,
+  AWAITING_REST_DELAY_MS,
   CHARACTER_HIT_HALF_WIDTH,
   CHARACTER_HIT_HEIGHT,
   CHARACTER_SITTING_OFFSET_PX,
@@ -778,13 +779,21 @@ export class OfficeState {
 
   /** Latch/clear the awaiting-user timestamp — see `shouldBeSeated` in
    *  characters.ts, which holds the desk while the latch is FRESH (it expires
-   *  after AWAITING_REST_DELAY_MS). An already-set latch is preserved so a
-   *  late idle_prompt can't restart the desk-hold clock the turn-end Stop
-   *  already started. */
+   *  after AWAITING_REST_DELAY_MS). A FRESH latch is preserved so a late
+   *  idle_prompt can't restart the desk-hold clock the turn-end Stop already
+   *  started; an EXPIRED one is replaced, or an agent whose sessions only
+   *  ever report `waiting` (no interleaved `active`) could never desk-hold
+   *  again after its first latch aged out. */
   setAwaitingSince(id: number, since: number | null): void {
     const ch = this.characters.get(id);
     if (!ch) return;
-    if (since !== null && ch.awaitingSince !== null) return;
+    if (
+      since !== null &&
+      ch.awaitingSince !== null &&
+      since - ch.awaitingSince < AWAITING_REST_DELAY_MS
+    ) {
+      return;
+    }
     ch.awaitingSince = since;
   }
 
