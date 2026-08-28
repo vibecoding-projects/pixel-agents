@@ -90,6 +90,7 @@
   "scripts": {
     "vscode:prepublish": "npm run package",
     "vscode:uninstall": "node ./dist/uninstall.js",
+    "postinstall": "node scripts/fix-node-pty-permissions.mjs",
     "prepack": "npm run package",
     "build:extension": "node esbuild.js --production",
     "build:webview": "cd webview-ui && npm run build",
