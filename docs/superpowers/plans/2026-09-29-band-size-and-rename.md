@@ -247,22 +247,27 @@ The rAF-throttled `onHandlePointerMove` sets state asynchronously, so pointer-up
 ```ts
 const sizeRef = useRef({ height, width });
 // inside the rAF callback:
+// Compute and record the size SYNCHRONOUSLY on every move (before the rAF
+// throttle), so pointer-up never reads a value one frame stale. The rAF only
+// flushes the ref into React state.
 if (drag.vertical) {
-  const next = Math.min(
+  sizeRef.current.width = Math.min(
     TERMINAL_BAND_MAX_WIDTH_PX,
     Math.max(TERMINAL_BAND_MIN_WIDTH_PX, drag.startSize + delta),
   );
-  sizeRef.current.width = next;
-  setWidth(next);
 } else {
-  const next = Math.min(
+  sizeRef.current.height = Math.min(
     TERMINAL_BAND_MAX_HEIGHT_PX,
     Math.max(TERMINAL_BAND_MIN_HEIGHT_PX, drag.startSize + delta),
   );
-  sizeRef.current.height = next;
-  setHeight(next);
 }
-// …
+if (rafRef.current !== null) return; // throttle to one update per frame
+rafRef.current = requestAnimationFrame(() => {
+  rafRef.current = null;
+  if (drag.vertical) setWidth(sizeRef.current.width);
+  else setHeight(sizeRef.current.height);
+});
+// … (this replaces the existing `if (rafRef.current !== null) return;` + rAF block)
 const onHandlePointerUp = useCallback(() => {
   const drag = dragRef.current;
   if (drag) {
@@ -337,13 +342,13 @@ Expected: validation passes; `messages.ts` diff adds a `RenameAgent` type to the
 
 - [ ] **Step 3: Update the CLAUDE.md count**
 
-Run: `grep -c "^        - \\$ref: '#/components/schemas/" core/asyncapi.yaml` is not selective enough; instead count each union with:
+Count each union (the `components.messages` block also has `ServerMessage:`/`ClientMessage:` keys, so the count is gated on the `schemas:` block):
 
 ```bash
-awk '/^    ServerMessage:$/{s=1} /^    ClientMessage:$/{s=2} /^      discriminator: type/{s=0} s==1&&/\$ref/{a++} s==2&&/\$ref/{b++} END{print "server="a, "client="b}' core/asyncapi.yaml
+awk '/^  schemas:$/{ok=1} ok&&/^    ServerMessage:$/{s=1} ok&&/^    ClientMessage:$/{s=2} /discriminator: type/{s=0} s==1&&/\$ref/{a++} s==2&&/\$ref/{b++} END{print "server="a, "client="b}' core/asyncapi.yaml
 ```
 
-Put those two numbers into the two CLAUDE.md bullets and add `renameAgent` to the lifecycle parenthetical of the ClientMessage bullet.
+Expected on this branch: `server=39 client=29` (today CLAUDE.md says 39/28). Put those two numbers into the two CLAUDE.md bullets and add `renameAgent` to the lifecycle parenthetical of the ClientMessage bullet.
 
 - [ ] **Step 4: Commit**
 
@@ -362,7 +367,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - Modify: `server/src/constants.ts` (append under "In-office pty terminals")
 - Modify: `server/src/clientMessageHandler.ts` (new `case 'renameAgent'` next to `case 'closeAgent'`)
-- Test: `server/__tests__/clientMessageHandler.pty.test.ts` (new describe block inside the existing top-level describe, reusing `makeCtx`, `send`, `broadcasts`, `store`)
+- Modify: `server/src/launchAgentStandalone.ts` (~line 155: cap the New-agent form name with the same constant)
+- Test: `server/__tests__/clientMessageHandler.pty.test.ts` (new describe block inside the existing top-level describe, reusing `makeCtx`, `send`, `broadcasts`, `store`). The spec names `clientMessageHandler.test.ts`; the pty file is used because its harness already builds a privileged context.
 
 **Interfaces:**
 
@@ -440,9 +446,11 @@ Expected: FAIL — `AGENT_TITLE_MAX_LEN` not exported / title unchanged.
 `server/src/constants.ts`, after `RECENT_AGENT_FOLDERS_MAX`:
 
 ```ts
-/** Max length of a user-chosen agent display name (renameAgent / New-agent form). */
+/** Max length of a user-chosen agent display name (renameAgent and the New-agent form both cap here). */
 export const AGENT_TITLE_MAX_LEN = 80;
 ```
+
+`server/src/launchAgentStandalone.ts`: import `AGENT_TITLE_MAX_LEN` from `./constants.js` and change the `customTitle:` line in the `AgentState` literal to `customTitle: opts.name?.trim().slice(0, AGENT_TITLE_MAX_LEN) || undefined,` so both entry points share the cap.
 
 `server/src/clientMessageHandler.ts`, import `AGENT_TITLE_MAX_LEN` from `./constants.js` and add after the `closeAgent` case:
 
@@ -470,7 +478,7 @@ Expected: PASS (whole file).
 - [ ] **Step 5: Commit**
 
 ```bash
-git add server/src/constants.ts server/src/clientMessageHandler.ts server/__tests__/clientMessageHandler.pty.test.ts
+git add server/src/constants.ts server/src/clientMessageHandler.ts server/src/launchAgentStandalone.ts server/__tests__/clientMessageHandler.pty.test.ts
 git commit -m "feat(server): renameAgent sets, clears, persists and broadcasts customTitle
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -484,13 +492,16 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - Modify: `webview-ui/src/office/engine/characters.ts` (`characterLabel`, ~line 414, and its doc comment)
 - Modify: `webview-ui/src/hooks/useExtensionMessages.ts` (`agentRenamed` branch, ~line 830)
-- Test: `webview-ui/test/character-label.test.ts` (new)
+- Test: `webview-ui/test/character-label.test.ts` (REPLACE — it exists and its second case pins the opposite `??` contract, which this task retires)
+- Modify: `webview-ui/src/office/components/ToolOverlay.tsx` (~line 254: the comment claiming an empty-string customTitle wins is no longer true; the `??` code stays correct because `''` is never stored)
 
 **Interfaces:**
 
 - Produces: `characterLabel` ignores empty-string `customTitle`/`agentName`/`terminalName`.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Replace the test file**
+
+Overwrite `webview-ui/test/character-label.test.ts` with the following (its first case is kept, the `??`-contract case is dropped, the header comment is rewritten):
 
 ```ts
 /**
@@ -558,8 +569,10 @@ export function characterLabel(ch: {
           const title = msg.customTitle as string;
           setCustomTitles((prev) => {
             if (!title) {
-              const { [id]: _cleared, ...rest } = prev;
-              return rest;
+              if (!(id in prev)) return prev;
+              const next = { ...prev };
+              delete next[id];
+              return next;
             }
             return { ...prev, [id]: title };
           });
@@ -567,7 +580,7 @@ export function characterLabel(ch: {
       }
 ```
 
-If the linter rejects the unused `_cleared` destructure, use `const next = { ...prev }; delete next[id]; return next;` instead.
+`ToolOverlay.tsx` comment: change "`??` so an empty-string customTitle still wins over a terminal name" to "an empty title is never stored (renameAgent clears the entry), so `??` falls through to the terminal name".
 
 - [ ] **Step 4: Run tests, types, lint**
 
@@ -577,7 +590,7 @@ Expected: PASS / clean.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add webview-ui/src/office/engine/characters.ts webview-ui/src/hooks/useExtensionMessages.ts webview-ui/test/character-label.test.ts
+git add webview-ui/src/office/engine/characters.ts webview-ui/src/hooks/useExtensionMessages.ts webview-ui/src/office/components/ToolOverlay.tsx webview-ui/test/character-label.test.ts
 git commit -m "fix(webview): empty customTitle means cleared, not an empty label
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
@@ -603,7 +616,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 Replace the body of `AgentRail.tsx` with (keeps every existing class and aria attribute; adds `onRename` and per-entry edit state):
 
 ```tsx
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 export interface RailAgent {
   id: number;
@@ -633,12 +646,22 @@ export function AgentRail({
   width,
 }: AgentRailProps) {
   const [editing, setEditing] = useState<{ id: number; draft: string } | null>(null);
+  // Escape must beat blur: when the input unmounts, the previous render's
+  // onBlur can still fire with a stale closure. Both handlers read this ref,
+  // which Escape nulls synchronously before the state update.
+  const editingRef = useRef<{ id: number; draft: string } | null>(null);
+  const setEdit = (next: { id: number; draft: string } | null) => {
+    editingRef.current = next;
+    setEditing(next);
+  };
 
   const commit = () => {
-    if (!editing) return;
-    const current = agents.find((a) => a.id === editing.id);
-    const next = editing.draft.trim();
-    if (current && next !== current.label) onRename(editing.id, next);
+    const current = editingRef.current;
+    if (!current) return;
+    editingRef.current = null;
+    const entry = agents.find((a) => a.id === current.id);
+    const next = current.draft.trim();
+    if (entry && next !== entry.label) onRename(current.id, next);
     setEditing(null);
   };
 
@@ -677,13 +700,13 @@ export function AgentRail({
                 type="text"
                 value={editing.draft}
                 autoFocus
-                onChange={(e) => setEditing({ id: agent.id, draft: e.target.value })}
+                onChange={(e) => setEdit({ id: agent.id, draft: e.target.value })}
                 onClick={(e) => e.stopPropagation()}
                 onBlur={commit}
                 onKeyDown={(e) => {
                   e.stopPropagation();
                   if (e.key === 'Enter') commit();
-                  else if (e.key === 'Escape') setEditing(null);
+                  else if (e.key === 'Escape') setEdit(null);
                 }}
                 className="flex-1 min-w-0 text-2xs py-1 px-2 bg-bg border-2 border-border rounded-none text-text"
                 aria-label={`Rename ${agent.label}`}
@@ -697,7 +720,7 @@ export function AgentRail({
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                setEditing({ id: agent.id, draft: agent.label });
+                setEdit({ id: agent.id, draft: agent.label });
               }}
               className="bg-transparent border-none cursor-pointer text-2xs text-text-muted hover:text-text px-2"
               title="Rename agent"
@@ -725,7 +748,7 @@ export function AgentRail({
 }
 ```
 
-Escape cancels without sending anything: `setEditing(null)` runs before blur can commit because the input unmounts; if blur still fires in practice, guard `commit` with `if (!editing) return` (already there).
+Escape cancels without sending anything because `setEdit(null)` nulls `editingRef` synchronously; a blur that fires during the unmount finds the ref empty and returns. `commit` also nulls the ref first so a blur following an Enter cannot send twice.
 
 - [ ] **Step 2: Thread `onRename` through TerminalBand and App**
 
