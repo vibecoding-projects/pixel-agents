@@ -339,6 +339,10 @@ function App() {
     transport.send({ type: 'closeAgent', id });
   }, []);
 
+  const handleRenameAgent = useCallback((id: number, customTitle: string) => {
+    transport.send({ type: 'renameAgent', id, customTitle });
+  }, []);
+
   const handleClick = useCallback(
     (agentId: number) => {
       // If clicked agent is a sub-agent, focus the parent's terminal instead
@@ -793,6 +797,7 @@ function App() {
           onFocus={setFocusedTerminalId}
           onClose={handleCloseAgent}
           onRestartAgent={(id) => transport.send({ type: 'restartAgent', id })}
+          onRename={handleRenameAgent}
           bus={ptyEventBus}
           position={panelPosition}
         />

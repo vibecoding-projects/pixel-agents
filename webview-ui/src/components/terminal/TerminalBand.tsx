@@ -29,6 +29,8 @@ interface TerminalBandProps {
   onFocus: (id: number) => void;
   onClose: (id: number) => void;
   onRestartAgent: (id: number) => void;
+  /** Inline rename from the rail ('' clears the title). */
+  onRename: (id: number, customTitle: string) => void;
   bus: PtyEventBus;
   /** Dock side (Settings → Terminal Position). Bottom drags height; left and
    *  right drag width. TerminalPane re-fits itself via its ResizeObserver. */
@@ -46,6 +48,7 @@ export function TerminalBand({
   onFocus,
   onClose,
   onRestartAgent,
+  onRename,
   bus,
   position,
 }: TerminalBandProps) {
@@ -186,6 +189,7 @@ export function TerminalBand({
         focusedId={focused?.id ?? null}
         onFocus={onFocus}
         onClose={onClose}
+        onRename={onRename}
         width={railWidth}
       />
       <div
