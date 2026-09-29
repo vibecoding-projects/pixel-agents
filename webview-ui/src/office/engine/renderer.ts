@@ -575,8 +575,8 @@ function renderSeatIndicators(
     const x = offsetX + seat.seatCol * s;
     const y = offsetY + seat.seatRow * s;
 
-    if (selectedChar.seatId === uid) {
-      // Selected agent's own seat — blue
+    if ((selectedChar.seatId ?? selectedChar.preferredSeatId) === uid) {
+      // Selected agent's own seat (claimed, else preferred) — blue
       ctx.fillStyle = SEAT_OWN_COLOR;
     } else if (!seat.assigned && seat.role === 'work') {
       // Available WORK seat — green. Rest seats (couches, etc.) are never a

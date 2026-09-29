@@ -256,12 +256,17 @@ export function installTestHooks(officeStateRef: { current: OfficeState | null }
     if (!os) return [];
     return Array.from(os.characters.values())
       .filter((ch) => !ch.isSubagent)
-      .map((ch) => ({
-        id: ch.id,
-        seatId: ch.seatId,
-        areaLabel: ch.seatId ? os.seatZone(ch.seatId) : null,
-        folderName: ch.folderName,
-      }));
+      .map((ch) => {
+        // Claimed seat, else the preference: e2e area/seat assertions read
+        // "which chair is this agent's", not whether it is sitting right now.
+        const seatId = ch.seatId ?? ch.preferredSeatId;
+        return {
+          id: ch.id,
+          seatId,
+          areaLabel: seatId ? os.seatZone(seatId) : null,
+          folderName: ch.folderName,
+        };
+      });
   };
 
   hooks.getSeats = () => {

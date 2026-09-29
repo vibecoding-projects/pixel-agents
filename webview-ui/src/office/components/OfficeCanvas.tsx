@@ -783,8 +783,8 @@ export function OfficeCanvas({
             if (seatId) {
               const seat = officeState.seats.get(seatId);
               if (seat && selectedCh) {
-                if (selectedCh.seatId === seatId) {
-                  // Clicked own seat — send agent back to it
+                if ((selectedCh.seatId ?? selectedCh.preferredSeatId) === seatId) {
+                  // Clicked own seat (claimed, else preferred) — send agent back to it
                   officeState.sendToSeat(officeState.selectedAgentId);
                   officeState.selectedAgentId = null;
                   officeState.cameraFollowId = null;

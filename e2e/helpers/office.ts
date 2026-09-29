@@ -243,7 +243,13 @@ export async function expectTeammateSeatedNextToLead(
     const dist = (s: { col: number; row: number }): number =>
       Math.abs(s.col - leadSeat.col) + Math.abs(s.row - leadSeat.row);
     const teammateDist = dist(teammateSeat);
-    const closerFreeSeat = seats.find((s) => !s.assigned && dist(s) < teammateDist) ?? null;
+    // Seats are claimed transiently now: both agents' own (preferred) chairs
+    // may read as free while they wander, so they are never "a closer seat".
+    const closerFreeSeat =
+      seats.find(
+        (s) =>
+          !s.assigned && s.uid !== leadSeatId && s.uid !== teammateSeatId && dist(s) < teammateDist,
+      ) ?? null;
     return { error: null, teammateDist, closerFreeSeat };
   }, teammateName);
 
