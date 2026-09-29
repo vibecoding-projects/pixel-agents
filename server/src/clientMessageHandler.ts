@@ -14,6 +14,7 @@ import {
   writeConfig,
 } from './configPersistence.js';
 import {
+  AGENT_TITLE_MAX_LEN,
   HUE_SHIFT_MAX_DEG,
   PALETTE_COUNT,
   PTY_SCROLLBACK_MAX_LINES,
@@ -118,6 +119,20 @@ export function handleClientMessage(
         runtime.dismissalTracker.dismiss(agent.jsonlFile);
         runtime.removeAgent(id);
       }
+      break;
+    }
+
+    case 'renameAgent': {
+      // Privileged: a title is user-visible state persisted under ~/.pixel-agents.
+      if (!ctx.privileged) break;
+      const id = msg.id as number;
+      const agent = store.get(id);
+      if (!agent || typeof msg.customTitle !== 'string') break;
+      const title = (msg.customTitle as string).trim().slice(0, AGENT_TITLE_MAX_LEN);
+      // '' means "cleared" end to end: undefined on the agent, '' on the wire.
+      agent.customTitle = title || undefined;
+      store.persist();
+      store.broadcast({ type: 'agentRenamed', id, customTitle: title });
       break;
     }
 

@@ -19,6 +19,7 @@ import type { HookProvider } from '../../core/src/provider.js';
 import type { AgentRuntime } from './agentRuntime.js';
 import type { AgentStateStore } from './agentStateStore.js';
 import {
+  AGENT_TITLE_MAX_LEN,
   DEFAULT_MAX_CONTEXT_TOKENS,
   JSONL_POLL_INTERVAL_MS,
   PTY_SCROLLBACK_MAX_LINES,
@@ -152,7 +153,7 @@ export function launchAgentStandalone(
     contextTokens: 0,
     maxContextTokens: DEFAULT_MAX_CONTEXT_TOKENS,
     ptyBacked: true,
-    customTitle: opts.name?.trim() || undefined,
+    customTitle: opts.name?.trim().slice(0, AGENT_TITLE_MAX_LEN) || undefined,
     spawnCwd: cwd,
     bypassPermissions: opts.bypassPermissions || undefined,
   };

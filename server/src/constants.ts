@@ -115,3 +115,5 @@ export const PTY_MAX_CHUNK_BYTES = 1_048_576;
 export const PTY_SCROLLBACK_MAX_LINES = 2000;
 /** MRU cap for the New-agent form's recent folders list. */
 export const RECENT_AGENT_FOLDERS_MAX = 8;
+/** Max length of a user-chosen agent display name (renameAgent and the New-agent form both cap here). */
+export const AGENT_TITLE_MAX_LEN = 80;

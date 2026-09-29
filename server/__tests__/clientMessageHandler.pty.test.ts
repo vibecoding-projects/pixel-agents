@@ -7,6 +7,7 @@ import type * as vscode from 'vscode';
 import { AgentRuntime } from '../src/agentRuntime.js';
 import { AgentStateStore } from '../src/agentStateStore.js';
 import { type ClientMessageContext, handleClientMessage } from '../src/clientMessageHandler.js';
+import { AGENT_TITLE_MAX_LEN } from '../src/constants.js';
 import { FileStateAdapter } from '../src/fileStateAdapter.js';
 import { claudeProvider } from '../src/providers/hook/claude/claude.js';
 import type { PtyManager, PtyStartOptions } from '../src/pty/ptyManager.js';
@@ -314,6 +315,61 @@ describe('clientMessageHandler: standalone pty dispatch', () => {
       store.set(6, createTestAgent({ id: 6, sessionId: 'sess-6' }));
       handleClientMessage({ type: 'restartAgent', id: 6 }, send, ctx);
       expect(starts).toHaveLength(0);
+    });
+  });
+
+  describe('renameAgent', () => {
+    it('privileged: trims, persists, and broadcasts agentRenamed', () => {
+      const ctx = makeCtx(null);
+      store.set(1, createTestAgent({ id: 1 }));
+      handleClientMessage({ type: 'renameAgent', id: 1, customTitle: '  Budget bot  ' }, send, ctx);
+      expect(store.get(1)!.customTitle).toBe('Budget bot');
+      expect(broadcasts.at(-1)).toEqual({ type: 'agentRenamed', id: 1, customTitle: 'Budget bot' });
+      expect(store.loadPersistedAgents().find((a) => a.id === 1)?.customTitle).toBe('Budget bot');
+    });
+
+    it('whitespace-only clears the title and broadcasts an empty string', () => {
+      const ctx = makeCtx(null);
+      store.set(1, createTestAgent({ id: 1, customTitle: 'Old' }));
+      handleClientMessage({ type: 'renameAgent', id: 1, customTitle: '   ' }, send, ctx);
+      expect(store.get(1)!.customTitle).toBeUndefined();
+      expect(broadcasts.at(-1)).toEqual({ type: 'agentRenamed', id: 1, customTitle: '' });
+      expect(store.loadPersistedAgents().find((a) => a.id === 1)?.customTitle).toBeUndefined();
+    });
+
+    it('truncates to AGENT_TITLE_MAX_LEN after trimming', () => {
+      const ctx = makeCtx(null);
+      store.set(1, createTestAgent({ id: 1 }));
+      handleClientMessage(
+        { type: 'renameAgent', id: 1, customTitle: ' ' + 'x'.repeat(200) },
+        send,
+        ctx,
+      );
+      expect(store.get(1)!.customTitle).toBe('x'.repeat(AGENT_TITLE_MAX_LEN));
+    });
+
+    it('works for external (adopted) agents too', () => {
+      const ctx = makeCtx(null);
+      store.set(4, createTestAgent({ id: 4, isExternal: true }));
+      handleClientMessage({ type: 'renameAgent', id: 4, customTitle: 'Songer' }, send, ctx);
+      expect(store.get(4)!.customTitle).toBe('Songer');
+    });
+
+    it('unprivileged: no change, no broadcast', () => {
+      const ctx = makeCtx(null, false);
+      store.set(1, createTestAgent({ id: 1, customTitle: 'Keep' }));
+      handleClientMessage({ type: 'renameAgent', id: 1, customTitle: 'Nope' }, send, ctx);
+      expect(store.get(1)!.customTitle).toBe('Keep');
+      expect(broadcasts.find((b) => b.type === 'agentRenamed')).toBeUndefined();
+    });
+
+    it('unknown id or non-string title: no-op', () => {
+      const ctx = makeCtx(null);
+      handleClientMessage({ type: 'renameAgent', id: 99, customTitle: 'x' }, send, ctx);
+      store.set(1, createTestAgent({ id: 1, customTitle: 'Keep' }));
+      handleClientMessage({ type: 'renameAgent', id: 1, customTitle: 42 }, send, ctx);
+      expect(store.get(1)!.customTitle).toBe('Keep');
+      expect(broadcasts.find((b) => b.type === 'agentRenamed')).toBeUndefined();
     });
   });
 
