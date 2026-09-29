@@ -39,10 +39,10 @@ import type {
   TileType as TileTypeVal,
 } from '../types.js';
 import { CharacterState, Direction, PetState, TILE_SIZE } from '../types.js';
-import { createCharacter, updateCharacter } from './characters.js';
+import { createCharacter, shouldBeSeated, updateCharacter } from './characters.js';
 import { advanceMatrixEffect, startMatrixEffect } from './matrixEffectState.js';
 import { createPet, updatePet } from './petEntity.js';
-import { anchorTile, closestFreeSeat } from './seatPlacement.js';
+import { anchorTile, claimWorkSeat, closestFreeSeat } from './seatPlacement.js';
 
 export class OfficeState {
   layout: OfficeLayout;
@@ -275,6 +275,86 @@ export class OfficeState {
     return result;
   }
 
+  /** Tile a seatless agent waits on: the free walkable tile nearest to the
+   *  nearest work seat, facing that seat. Null when the layout has no work
+   *  seats or no free tile. */
+  private waitingSpot(ch: Character): { col: number; row: number; facing: Direction } | null {
+    let nearest: Seat | null = null;
+    let nearestDist = Infinity;
+    for (const seat of this.seats.values()) {
+      if (seat.role !== 'work') continue;
+      const d = Math.abs(seat.seatCol - ch.tileCol) + Math.abs(seat.seatRow - ch.tileRow);
+      if (d < nearestDist) {
+        nearest = seat;
+        nearestDist = d;
+      }
+    }
+    if (!nearest) return null;
+    // Two waiters may be handed the same spot; isValidWaitTarget (occupied by
+    // another character) makes the second one re-pick after the first arrives.
+    const tile = this.closestFreeWalkableTile(nearest.seatCol, nearest.seatRow, ch.id);
+    return tile ? { col: tile.col, row: tile.row, facing: nearest.facingDir } : null;
+  }
+
+  private isValidWaitTarget(ch: Character): boolean {
+    const t = ch.seatWaitTarget;
+    if (!t) return false;
+    if (!isWalkable(t.col, t.row, this.tileMap, this.blockedTiles)) return false;
+    for (const other of this.characters.values()) {
+      if (other.id !== ch.id && other.tileCol === t.col && other.tileRow === t.row) return false;
+    }
+    return true;
+  }
+
+  /** Pre-tick seat bookkeeping for agent characters (never sub-agents): an
+   *  agent that should be seated and holds no claim takes a seat via
+   *  claimWorkSeat, or waits at the waiting spot; an agent that stopped
+   *  needing a seat drops its wait. The FSM (updateCharacter) only walks. */
+  private seatClaimStep(ch: Character, now: number): void {
+    if (shouldBeSeated(ch, now)) {
+      if (ch.seatId) return;
+      const areaLabels = ch.folderName ? this.areaMappings[ch.folderName] : undefined;
+      // Reachability is checked HERE, retrying without unreachable candidates:
+      // if the FSM alone rolled back an unreachable claim, the next step would
+      // hand it the same nearest seat every tick (BFS + assigned flicker).
+      const skip = new Set<string>();
+      for (;;) {
+        const uid = claimWorkSeat(ch, this.seats, (u) => this.seatZone(u), areaLabels, skip);
+        if (!uid) break;
+        const seat = this.seats.get(uid)!;
+        const atSeat = ch.tileCol === seat.seatCol && ch.tileRow === seat.seatRow;
+        const key = `${seat.seatCol},${seat.seatRow}`;
+        const wasBlocked = this.blockedTiles.has(key);
+        if (wasBlocked) this.blockedTiles.delete(key);
+        const reachable =
+          atSeat ||
+          findPath(
+            ch.tileCol,
+            ch.tileRow,
+            seat.seatCol,
+            seat.seatRow,
+            this.tileMap,
+            this.blockedTiles,
+          ).length > 0;
+        if (wasBlocked) this.blockedTiles.add(key);
+        if (!reachable) {
+          skip.add(uid);
+          continue;
+        }
+        seat.assigned = true;
+        ch.seatId = uid;
+        ch.seatWait = false;
+        ch.seatWaitTarget = null;
+        return;
+      }
+      ch.seatWait = true;
+      if (!this.isValidWaitTarget(ch)) ch.seatWaitTarget = this.waitingSpot(ch);
+    } else if (ch.seatWait) {
+      ch.seatWait = false;
+      ch.seatWaitTarget = null;
+    }
+  }
+
   /** Find the area label assigned to a seat's tile, or null. Public for e2e
    *  observability (getAgentSeats hook reads a seated agent's area). */
   seatZone(uid: string): string | null {
@@ -353,9 +433,14 @@ export class OfficeState {
   }
 
   /** Closest walkable tile to (col,row) not occupied by another character, or null. */
-  private closestFreeWalkableTile(col: number, row: number): { col: number; row: number } | null {
+  private closestFreeWalkableTile(
+    col: number,
+    row: number,
+    exceptId?: number,
+  ): { col: number; row: number } | null {
     const occupied = new Set<string>();
     for (const ch of this.characters.values()) {
+      if (ch.id === exceptId) continue; // the asker's own tile is not "taken"
       occupied.add(`${ch.tileCol},${ch.tileRow}`);
     }
     let best: { col: number; row: number } | null = null;
@@ -1145,6 +1230,7 @@ export class OfficeState {
     }
 
     const toDelete: number[] = [];
+    const now = Date.now();
     for (const ch of this.characters.values()) {
       const effect = advanceMatrixEffect(ch, dt);
       if (effect !== 'none') {
@@ -1152,9 +1238,20 @@ export class OfficeState {
         continue; // skip normal FSM while the effect is (or just was) active
       }
 
+      // Seats are claimed here, before the FSM, which only walks to them.
+      if (!ch.isSubagent) this.seatClaimStep(ch, now);
+
       // Temporarily unblock own seat so character can pathfind to it
       this.withOwnSeatUnblocked(ch, () =>
-        updateCharacter(ch, dt, this.walkableTiles, this.seats, this.tileMap, this.blockedTiles),
+        updateCharacter(
+          ch,
+          dt,
+          this.walkableTiles,
+          this.seats,
+          this.tileMap,
+          this.blockedTiles,
+          now,
+        ),
       );
 
       // Tick bubble timer for waiting bubbles
