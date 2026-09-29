@@ -269,6 +269,13 @@ describe('findLiveProcessIn', () => {
     expect(findLiveProcessIn(SID, deps())).toBeNull();
   });
 
+  it('a stale (dead-pid) entry for the same session does not shadow the live one', () => {
+    writeEntry(1111); // crashed earlier; file lingered
+    writeEntry(4242);
+    const d = deps({ isAlive: (pid) => pid === 4242 });
+    expect(findLiveProcessIn(SID, d)?.pid).toBe(4242);
+  });
+
   it('ignores unreadable or non-JSON files and a missing registry dir', () => {
     fs.writeFileSync(path.join(dir, '1.json'), '{not json');
     writeEntry(4242);
@@ -472,14 +479,17 @@ function readEntries(dir: string): RegistryEntry[] {
 export function findLiveProcessIn(sessionId: string, deps: LiveProcessDeps): LiveProcess | null {
   for (const entry of readEntries(deps.registryDir)) {
     if (entry.sessionId !== sessionId) continue;
-    if (!deps.isAlive(entry.pid)) return null;
+    // A registry file lingers after a crash/SIGKILL, so a stale entry for the
+    // same session can sit beside the live one: every failed proof is
+    // `continue`, never a verdict — only a PROVEN entry is returned.
+    if (!deps.isAlive(entry.pid)) continue;
     // Registry procStart is UTC without a zone suffix; ps lstart is local time.
     const recorded = entry.procStart ? Date.parse(`${entry.procStart} UTC`) : NaN;
-    if (!Number.isFinite(recorded)) return null;
+    if (!Number.isFinite(recorded)) continue;
     const seen = deps.inspect(entry.pid);
-    if (!seen) return null;
-    if (!/\bclaude\b/.test(seen.command)) return null;
-    if (Math.abs(seen.startedAtMs - recorded) > LIVE_PROCESS_START_TOLERANCE_MS) return null;
+    if (!seen) continue;
+    if (!/\bclaude\b/.test(seen.command)) continue;
+    if (Math.abs(seen.startedAtMs - recorded) > LIVE_PROCESS_START_TOLERANCE_MS) continue;
     return { pid: entry.pid, cwd: typeof entry.cwd === 'string' ? entry.cwd : undefined };
   }
   return null;
@@ -500,6 +510,7 @@ function inspect(pid: number): { startedAtMs: number; command: string } | null {
     const out = execFileSync('ps', ['-o', 'lstart=,command=', '-p', String(pid)], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
+      env: { ...process.env, LC_ALL: 'C' }, // English month names for the parser
     });
     return parsePsLine(out.split('\n').find((l) => l.trim()) ?? '');
   } catch {
@@ -627,7 +638,7 @@ it('restarts with --resume when the transcript exists, --session-id when it does
 });
 ```
 
-In `mockClaudeRunner.test.ts`, next to the existing spawn test, add a test that spawns the runner with `['--resume', sessionId]` (same HOME/cwd setup as the existing test) and asserts the same invocation log line / transcript path is produced as for `--session-id` (copy the existing test's assertions verbatim, only the argv differs).
+In `mockClaudeRunner.test.ts`, `runMockClaude(...)` hardcodes `'--session-id'` in its `spawn` argv — add a trailing `flag: '--session-id' | '--resume' = '--session-id'` parameter and use it. Then add a test next to the existing spawn test that calls `runMockClaude(…, '--resume')` and asserts the same invocation log line / transcript path as the `--session-id` case (copy that test's assertions verbatim).
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -646,7 +657,7 @@ const launch = ctx.provider.buildLaunchCommand(agent.sessionId, cwd, {
 });
 ```
 
-(`fs` is already imported in that file; if not, add `import * as fs from 'fs';`.)
+`clientMessageHandler.ts` imports only `os` today — add `import * as fs from 'fs';` next to it.
 
 `mock-claude-runner.cjs`:
 
@@ -691,7 +702,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Failing tests**
 
-Add to `hookEventHandler.test.ts` (uses the file's `createTestAgent`, `agents`, `handler`, `mockWebview`; `handler.setLifecycleCallbacks` exists — check the constructor/`setLifecycleCallbacks` API in `hookEventHandler.ts` and use whichever the file exposes; the existing SessionEnd tests in this file show the pattern):
+Add to `hookEventHandler.test.ts`, INSIDE the outer `describe('HookEventHandler'` block (it closes over `agents`, `handler`, `mockWebview`; `handler.setLifecycleCallbacks` exists):
 
 ```ts
 describe('SessionEnd during a move (pendingHandoff)', () => {
@@ -733,6 +744,18 @@ describe('SessionEnd during a move (pendingHandoff)', () => {
     expect(onSessionEnd).toHaveBeenCalledWith(1, 'other');
   });
 
+  it('an auto-discovered SessionStart(resume) clears pendingClear too', () => {
+    const agent = createTestAgent({ id: 1, sessionId: 'sess-1', pendingClear: true });
+    agents.set(1, agent); // NOT registered with the router
+    handler.handleEvent('claude', {
+      hook_event_name: 'SessionStart',
+      session_id: 'sess-1',
+      source: 'resume',
+      cwd: '/test',
+    });
+    expect(agent.pendingClear).toBe(false);
+  });
+
   it('a known-agent SessionStart(resume) clears pendingClear', () => {
     const agent = createTestAgent({ id: 1, sessionId: 'sess-1', pendingClear: true });
     agents.set(1, agent);
@@ -764,11 +787,14 @@ Expected: FAIL — `onSessionEnd` called; `pendingClear` still true.
   pendingHandoff?: boolean;
   /** A moveSessionHere is in progress for this agent. Runtime-only. */
   moveInFlight?: boolean;
+  /** Identity of the move that armed the current latch (its grace timer only
+   *  clears its own latch). Runtime-only. */
+  moveToken?: object;
 ```
 
 `hookEventHandler.ts`:
 
-1. Split `markAgentWaiting`: move its body from the first line through the background re-send loop into a new `private clearTurnTools(agent: AgentState, agentId: number): void`, and have `markAgentWaiting` call `this.clearTurnTools(agent, agentId)` first and keep only what follows (the `isWaiting`/`agentStatus` part). Behaviour of `markAgentWaiting` is unchanged.
+1. Split `markAgentWaiting`: everything EXCEPT `agent.isWaiting = true` and the `agentStatus` broadcast moves into a new `private clearTurnTools(agent: AgentState, agentId: number): void` — timer cancels, the foreground tool sweep, the `agentToolsClear` broadcast, the background re-send loop, AND the three resets `permissionSent = false`, `hadToolsInTurn = false`, `currentHookToolId = undefined` (a handoff must not carry the killed process's hook-tool correlation into the resumed session). `markAgentWaiting` becomes `this.clearTurnTools(agent, agentId); agent.isWaiting = true; this.agents.broadcast({ type: 'agentStatus', … })`. Its behaviour is unchanged.
 
 2. At the top of `handleSessionEnd`, before `expectsFollowUp`:
 
@@ -784,7 +810,7 @@ if (agent.pendingHandoff) {
 }
 ```
 
-3. In the SessionStart known-agent branch (`if (existingAgentId !== undefined)`), inside `if (agent)`, add `agent.pendingClear = false;` after `agent.hookDelivered = true;` with the comment `// Same-id resume (a move): no reassign will follow.`
+3. In the SessionStart known-agent branch (`if (existingAgentId !== undefined)`), inside `if (agent)`, add `agent.pendingClear = false;` after `agent.hookDelivered = true;` with the comment `// Same-id resume (a move): no reassign will follow.` Do the same in the auto-discovery branch just below it (`if (agent.sessionId === event.session_id)`), after its `agent.hookDelivered = true;` — a moved agent whose hooks were never registered takes that path.
 
 - [ ] **Step 4: Run all handler tests, commit**
 
@@ -841,6 +867,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentRuntime } from '../src/agentRuntime.js';
 import { AgentStateStore } from '../src/agentStateStore.js';
+import { MOVE_HANDOFF_GRACE_MS } from '../src/constants.js';
 import { moveRefusalReason, moveSessionHere, type MoveSessionDeps } from '../src/moveSession.js';
 import { claudeProvider } from '../src/providers/hook/claude/claude.js';
 import type { PtyManager, PtyStartOptions } from '../src/pty/ptyManager.js';
@@ -1003,7 +1030,7 @@ describe('moveSessionHere', () => {
   it('escalates to SIGKILL and fails when the process will not die; agent untouched', async () => {
     const agent = createTestAgent({ jsonlFile: transcript });
     store.set(4, agent);
-    const d = deps({ pid: 777, cwd: tmp }, { sleep: async () => {} }); // never exits
+    const d = deps({ pid: 777, cwd: tmp }, { sleep: async () => {} }); // never exits; bounded by poll count
     const ok = await moveSessionHere(4, d);
     expect(ok).toBe(false);
     expect(kill).toHaveBeenCalledWith(777, 'SIGTERM');
@@ -1014,6 +1041,36 @@ describe('moveSessionHere', () => {
     expect(agent.pendingHandoff).toBe(false);
     expect(agent.pendingClear).toBe(false);
     expect(sent.at(-1)).toMatchObject({ type: 'moveSessionFailed', id: 4 });
+  });
+
+  it('a throwing kill (EPERM) fails cleanly with the latch cleared and nothing spawned', async () => {
+    const agent = createTestAgent({ jsonlFile: transcript });
+    store.set(4, agent);
+    kill.mockImplementation(() => {
+      throw Object.assign(new Error('EPERM'), { code: 'EPERM' });
+    });
+    expect(await moveSessionHere(4, deps({ pid: 777, cwd: tmp }))).toBe(false);
+    expect(starts).toHaveLength(0);
+    expect(agent.pendingHandoff).toBe(false);
+    expect(agent.pendingClear).toBe(false);
+    expect(agent.moveInFlight).toBeFalsy();
+    expect(sent.at(-1)).toMatchObject({ type: 'moveSessionFailed', id: 4 });
+  });
+
+  it('the grace timer clears both latch flags when no hook ever arrives', async () => {
+    vi.useFakeTimers();
+    try {
+      const agent = createTestAgent({ jsonlFile: transcript });
+      store.set(4, agent);
+      await moveSessionHere(4, deps(null));
+      expect(agent.pendingHandoff).toBe(true);
+      expect(agent.pendingClear).toBe(true);
+      vi.advanceTimersByTime(MOVE_HANDOFF_GRACE_MS + 1);
+      expect(agent.pendingHandoff).toBe(false);
+      expect(agent.pendingClear).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('refuses a second move while one is in flight', async () => {
@@ -1158,12 +1215,14 @@ async function waitForExit(
   isAlive: (pid: number) => boolean,
   sleep: (ms: number) => Promise<void>,
 ): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (isAlive(pid)) {
-    if (Date.now() >= deadline) return false;
+  // Bounded by poll COUNT, not wall clock, so an injected `sleep` makes the
+  // wait deterministic in tests (no hot loop against Date.now()).
+  const polls = Math.ceil(timeoutMs / MOVE_POLL_INTERVAL_MS);
+  for (let i = 0; i < polls; i++) {
+    if (!isAlive(pid)) return true;
     await sleep(MOVE_POLL_INTERVAL_MS);
   }
-  return true;
+  return !isAlive(pid);
 }
 
 /** Returns true when the session now runs in-office. */
@@ -1195,43 +1254,62 @@ export async function moveSessionHere(id: number, deps: MoveSessionDeps): Promis
       [live?.cwd, provider.transcriptCwd?.(agent.jsonlFile), deps.launchCwd].find(dirExists) ??
       deps.launchCwd;
 
-    // 3. Latch, then 4. stop the outside process.
+    // 3. Latch, then 4. stop the outside process. The token ties the grace
+    // timer to THIS move: a later move's latch is never cleared by an earlier
+    // move's timer, and the timer clears BOTH flags (pendingClear may outlive
+    // pendingHandoff when the resumed Claude never sends a SessionStart).
+    const token = {};
+    agent.moveToken = token;
     agent.pendingHandoff = true;
     agent.pendingClear = true;
     const clearLatch = () => {
       agent.pendingHandoff = false;
       agent.pendingClear = false;
+      agent.moveToken = undefined;
     };
-    if (live) {
-      kill(live.pid, 'SIGTERM');
-      let gone = await waitForExit(live.pid, MOVE_TERMINATE_TIMEOUT_MS, isAlive, sleep);
-      if (!gone) {
-        kill(live.pid, 'SIGKILL');
-        gone = await waitForExit(live.pid, MOVE_KILL_TIMEOUT_MS, isAlive, sleep);
+    try {
+      if (live) {
+        kill(live.pid, 'SIGTERM');
+        let gone = await waitForExit(live.pid, MOVE_TERMINATE_TIMEOUT_MS, isAlive, sleep);
+        if (!gone) {
+          kill(live.pid, 'SIGKILL');
+          gone = await waitForExit(live.pid, MOVE_KILL_TIMEOUT_MS, isAlive, sleep);
+        }
+        if (!gone) {
+          clearLatch();
+          return fail('Could not stop the process in the other terminal.');
+        }
       }
-      if (!gone) {
-        clearLatch();
-        return fail('Could not stop the process in the other terminal.');
-      }
+    } catch (err) {
+      // e.g. EPERM: a proven claude owned by another user. Nothing was spawned.
+      clearLatch();
+      return fail(`Could not stop the process in the other terminal: ${String(err)}`);
     }
-    // If no SessionEnd ever arrives (hooks off, or none fired), drop the latch.
+    // If no hook ever arrives (hooks off, resume refused before SessionStart),
+    // drop whatever this move left latched.
     setTimeout(() => {
-      if (agent.pendingHandoff) clearLatch();
+      if (agent.moveToken === token) clearLatch();
     }, MOVE_HANDOFF_GRACE_MS).unref?.();
 
     // 5. Spawn the resume in a login shell, like launchAgentStandalone.
     const launch = provider.buildLaunchCommand(agent.sessionId, cwd, { resume: true });
     const idx = store.nextTerminalIndex.current++;
     const terminalName = `${CLAUDE_TERMINAL_NAME_PREFIX} #${idx}`;
-    ptyHost.start(id, {
-      shell: process.env.SHELL ?? '/bin/zsh',
-      args: ['-l', '-c', [launch.command, ...launch.args].join(' ')],
-      cwd,
-      env: { ...process.env, ...launch.env },
-      cols: 80,
-      rows: 24,
-      scrollbackCapacity: PTY_SCROLLBACK_MAX_LINES,
-    });
+    try {
+      ptyHost.start(id, {
+        shell: process.env.SHELL ?? '/bin/zsh',
+        args: ['-l', '-c', [launch.command, ...launch.args].join(' ')],
+        cwd,
+        env: { ...process.env, ...launch.env },
+        cols: 80,
+        rows: 24,
+        scrollbackCapacity: PTY_SCROLLBACK_MAX_LINES,
+      });
+    } catch (err) {
+      // The outside process is already gone; report it so the user can Restart.
+      clearLatch();
+      return fail(`The session was stopped but could not be resumed here: ${String(err)}`);
+    }
 
     // 6. Flip.
     agent.isExternal = false;
@@ -1445,22 +1523,22 @@ export interface RailAgent {
 }
 ```
 
-```tsx
-{
-  !agent.attached && (
-    <span
-      className="text-2xs text-text-muted"
-      title={
-        agent.moveState === 'pending'
-          ? 'Moving this session here…'
-          : (agent.moveError ?? 'Running outside the office — click to move it here')
-      }
-      aria-label="outside"
-    >
-      {agent.moveState === 'pending' ? '⋯' : '⇠'}
-    </span>
-  );
-}
+Inside each entry, before the label span, render an "outside" marker for unattached entries, and mute the whole entry (spec: non-pty entries render muted) by adding `opacity-60` to the entry's `className` when `!agent.attached`:
+
+```text
+{!agent.attached && (
+  <span
+    className="text-2xs text-text-muted"
+    title={
+      agent.moveState === 'pending'
+        ? 'Moving this session here…'
+        : (agent.moveError ?? 'Running outside the office — click to move it here')
+    }
+    aria-label="outside"
+  >
+    {agent.moveState === 'pending' ? '⋯' : '⇠'}
+  </span>
+)}
 ```
 
 - [ ] **Step 3: Placeholder pane**
@@ -1518,9 +1596,13 @@ const railAgents = useMemo(
           id,
         }),
         attached: ptyBackedByAgent[id] === true,
-        moveState: movePending[id] ? 'pending' : moveErrors[id] ? 'error' : 'idle',
+        moveState: (movePending[id]
+          ? 'pending'
+          : moveErrors[id]
+            ? 'error'
+            : 'idle') as RailAgent['moveState'],
         moveError: moveErrors[id],
-      })) as RailAgent[],
+      })),
   [agents, teammateIds, ptyBackedByAgent, customTitles, terminalNames, movePending, moveErrors],
 );
 ```
@@ -1567,6 +1649,8 @@ and add `isMovable, requestMove, setTerminalOpen` to its dependency array.
 7. Rail focus: `onFocus={(id) => { setFocusedTerminalId(id); requestMove(id); }}` (`requestMove` is a no-op for attached agents).
 
 8. The band's render gate `railAgents.length > 0` stays; unattached agents now count, which is intended.
+
+9. The auto-open-on-spawn effect (`pendingSpawnOpenRef`, `prevRailIdsRef`): `fresh` must only consider ATTACHED entries — `railAgents.filter((a) => a.attached && !prev.has(a.id))` — or a scanner adoption landing during a pending spawn steals the auto-open onto a placeholder.
 
 - [ ] **Step 5: Types, lint, build, manual check**
 
