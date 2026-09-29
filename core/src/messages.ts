@@ -53,6 +53,7 @@ export type ClientMessage =
   | LaunchAgent
   | FocusAgent
   | CloseAgent
+  | RenameAgent
   | SaveAgentSeats
   | SaveLayout
   | SetSoundEnabled
@@ -405,6 +406,12 @@ export interface FocusAgent {
 export interface CloseAgent {
   type: 'closeAgent';
   id: number;
+}
+
+export interface RenameAgent {
+  type: 'renameAgent';
+  id: number;
+  customTitle: string;
 }
 
 export interface SaveAgentSeats {

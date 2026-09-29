@@ -135,6 +135,7 @@ components:
         - $ref: '#/components/schemas/LaunchAgent'
         - $ref: '#/components/schemas/FocusAgent'
         - $ref: '#/components/schemas/CloseAgent'
+        - $ref: '#/components/schemas/RenameAgent'
         - $ref: '#/components/schemas/SaveAgentSeats'
         - $ref: '#/components/schemas/SaveLayout'
         - $ref: '#/components/schemas/SetSoundEnabled'
@@ -1068,6 +1069,21 @@ components:
           const: closeAgent
         id:
           type: integer
+
+    RenameAgent:
+      description: >-
+        Set or clear an agent's display name (customTitle) after launch.
+        An empty string clears it. Privileged only.
+      type: object
+      additionalProperties: false
+      required: [type, id, customTitle]
+      properties:
+        type:
+          const: renameAgent
+        id:
+          type: integer
+        customTitle:
+          type: string
 
     SaveAgentSeats:
       description: Persist seat assignments for current agents.
