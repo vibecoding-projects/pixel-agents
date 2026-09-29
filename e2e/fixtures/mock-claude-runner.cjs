@@ -15,7 +15,7 @@ function sleep(ms) {
 function parseSessionId(argv) {
   let previous = '';
   for (const arg of argv) {
-    if (previous === '--session-id') {
+    if (previous === '--session-id' || previous === '--resume') {
       return arg;
     }
     previous = arg;

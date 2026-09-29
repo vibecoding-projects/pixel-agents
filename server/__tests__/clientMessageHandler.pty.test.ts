@@ -293,6 +293,32 @@ describe('clientMessageHandler: standalone pty dispatch', () => {
       expect(broadcasts.find((b) => b.type === 'agentRestarted')?.id).toBe(4);
     });
 
+    it('restarts with --resume when the transcript exists, --session-id when it does not', () => {
+      const { host, starts } = makeFakePtyHost();
+      const ctx = makeCtx(host);
+      const transcript = path.join(launchCwd, 'sess-1.jsonl');
+      fs.writeFileSync(transcript, '{"type":"user"}\n');
+      store.set(
+        1,
+        createTestAgent({ id: 1, ptyBacked: true, spawnCwd: launchCwd, jsonlFile: transcript }),
+      );
+      handleClientMessage({ type: 'restartAgent', id: 1 }, send, ctx);
+      expect(starts.at(-1)!.opts.args.at(-1)).toContain('claude --resume sess-1');
+
+      store.set(
+        2,
+        createTestAgent({
+          id: 2,
+          sessionId: 'sess-2',
+          ptyBacked: true,
+          spawnCwd: launchCwd,
+          jsonlFile: path.join(launchCwd, 'missing.jsonl'),
+        }),
+      );
+      handleClientMessage({ type: 'restartAgent', id: 2 }, send, ctx);
+      expect(starts.at(-1)!.opts.args.at(-1)).toContain('claude --session-id sess-2');
+    });
+
     it('restart re-applies the recorded bypassPermissions flag', () => {
       const { host, starts } = makeFakePtyHost();
       const ctx = makeCtx(host);

@@ -47,9 +47,10 @@ function writeSettings(
 
 function runMockClaude(
   sessionId = 'test-session',
+  flag: '--session-id' | '--resume' = '--session-id',
 ): Promise<{ code: number | null; stderr: string }> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [MOCK_CLAUDE_RUNNER, '--session-id', sessionId], {
+    const child = spawn(process.execPath, [MOCK_CLAUDE_RUNNER, flag, sessionId], {
       cwd: workspaceDir,
       env: {
         ...process.env,
@@ -146,6 +147,25 @@ describe('mock-claude-runner hook execution', () => {
       hook_event_name: 'Notification',
       notification_type: 'idle_prompt',
     });
+  });
+
+  it('accepts --resume <id> like --session-id (restart of an existing session)', async () => {
+    writeScenarioQueue(tmpHome, [
+      { schemaVersion: 1, autoInit: true, holdOpenMs: 0, sessions: [], actions: [] },
+    ]);
+
+    const { code, stderr } = await runMockClaude('resume-session', '--resume');
+
+    expect(code, stderr).toBe(0);
+    const projectDir = path.join(
+      tmpHome,
+      '.claude',
+      'projects',
+      workspaceDir.replace(/[^a-zA-Z0-9-]/g, '-'),
+    );
+    expect(fs.existsSync(path.join(projectDir, 'resume-session.jsonl'))).toBe(true);
+    const log = fs.readFileSync(path.join(tmpHome, '.claude-mock', 'invocations.log'), 'utf8');
+    expect(log).toContain('session-id=resume-session');
   });
 
   it('writes configured sidecar metadata next to custom transcript paths', async () => {

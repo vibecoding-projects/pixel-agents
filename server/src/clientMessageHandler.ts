@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import * as os from 'os';
 
 import type { HookProvider } from '../../core/src/provider.js';
@@ -385,6 +386,8 @@ export function handleClientMessage(
       runtime.ptyHost.stop(id);
       const launch = ctx.provider.buildLaunchCommand(agent.sessionId, cwd, {
         bypassPermissions: agent.bypassPermissions,
+        // Claude refuses --session-id for an id that already has a transcript.
+        resume: fs.existsSync(agent.jsonlFile),
       });
       runtime.ptyHost.start(id, {
         shell: process.env.SHELL ?? '/bin/zsh',
