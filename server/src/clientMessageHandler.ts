@@ -23,7 +23,7 @@ import {
 } from './constants.js';
 import { launchAgentStandalone, resolveDefaultCwd } from './launchAgentStandalone.js';
 import { readLayoutFromFile, writeLayoutToFile } from './layoutPersistence.js';
-import { moveSessionHere } from './moveSession.js';
+import { dirExists, moveSessionHere } from './moveSession.js';
 import type { ConsentEffects } from './providers/hook/consentExecutor.js';
 import { applyConsentChoice } from './providers/hook/consentExecutor.js';
 import { hooksConsentRequest } from './providers/hook/consentGate.js';
@@ -383,14 +383,6 @@ export function handleClientMessage(
       if (!agent?.ptyBacked || !agent.sessionId) break;
       // Spawn folder → the transcript's recorded cwd (a restored agent with
       // no persisted folder) → the CLI's launch folder.
-      const dirExists = (d: string | undefined): d is string => {
-        if (!d) return false;
-        try {
-          return fs.statSync(d).isDirectory();
-        } catch {
-          return false;
-        }
-      };
       const cwd =
         [agent.spawnCwd, ctx.provider.transcriptCwd?.(agent.jsonlFile), ctx.launchCwd].find(
           dirExists,

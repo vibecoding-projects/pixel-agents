@@ -15,7 +15,7 @@ import type * as vscode from 'vscode';
 
 import type { HookProvider } from '../../core/src/provider.js';
 import type { AgentStateStore } from './agentStateStore.js';
-import { DEFAULT_MAX_CONTEXT_TOKENS } from './constants.js';
+import { DEFAULT_MAX_CONTEXT_TOKENS, RESTORED_PTY_EXIT } from './constants.js';
 import { DismissalTracker } from './dismissalTracker.js';
 import {
   adoptExternalSessionFromHook,
@@ -567,9 +567,7 @@ export class AgentRuntime {
 
       this.registerAgent(agent.sessionId, agent.id);
       if (restorePty) {
-        // SIGHUP: the terminal went away. Counted as abnormal so the pane
-        // shows Restart and the character gets the stopped glyph.
-        this._ptyHost!.markStopped(p.id, { code: 0, signal: 'SIGHUP' });
+        this._ptyHost!.markStopped(p.id, { ...RESTORED_PTY_EXIT });
       }
 
       if (p.id > maxId) maxId = p.id;

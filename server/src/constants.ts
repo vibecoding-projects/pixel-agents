@@ -132,3 +132,7 @@ export const MOVE_KILL_TIMEOUT_MS = 2000;
 export const MOVE_POLL_INTERVAL_MS = 100;
 /** How long the handoff latch survives with no SessionEnd from the old process. */
 export const MOVE_HANDOFF_GRACE_MS = 10_000;
+/** Synthetic exit recorded for a pty-backed agent restored after a daemon
+ *  restart: its terminal went away (SIGHUP). Counted as abnormal so the pane
+ *  offers Restart and the character shows the stopped glyph. */
+export const RESTORED_PTY_EXIT = { code: 0, signal: 'SIGHUP' } as const;

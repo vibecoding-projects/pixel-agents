@@ -73,7 +73,8 @@ function defaultIsAlive(pid: number): boolean {
 
 const defaultSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-function dirExists(p: string | undefined): p is string {
+/** True when `p` names an existing directory. Shared by the move and restart paths. */
+export function dirExists(p: string | undefined): p is string {
   if (!p) return false;
   try {
     return fs.statSync(p).isDirectory();
