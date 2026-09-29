@@ -23,6 +23,7 @@ import {
 } from './constants.js';
 import { launchAgentStandalone, resolveDefaultCwd } from './launchAgentStandalone.js';
 import { readLayoutFromFile, writeLayoutToFile } from './layoutPersistence.js';
+import { moveSessionHere } from './moveSession.js';
 import type { ConsentEffects } from './providers/hook/consentExecutor.js';
 import { applyConsentChoice } from './providers/hook/consentExecutor.js';
 import { hooksConsentRequest } from './providers/hook/consentGate.js';
@@ -402,6 +403,20 @@ export function handleClientMessage(
       break;
     }
 
+    case 'moveSessionHere': {
+      if (!ctx.privileged || !runtime || !ctx.provider || !ctx.launchCwd) break;
+      // Fire-and-forget: the outcome reaches the client as sessionMoved
+      // (broadcast) or moveSessionFailed (point-to-point).
+      void moveSessionHere(msg.id as number, {
+        store,
+        runtime,
+        provider: ctx.provider,
+        launchCwd: ctx.launchCwd,
+        send,
+      });
+      break;
+    }
+
     case 'acknowledgeCrash': {
       if (!ctx.privileged) break;
       store.broadcast({ type: 'crashAcknowledged', id: msg.id as number });
@@ -634,6 +649,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
   const ptyBackedAgents: Record<number, boolean> = {};
   const customTitles: Record<number, string> = {};
   const terminalNames: Record<number, string> = {};
+  const teammateAgents: Record<number, boolean> = {};
   const persistedSeats = adapter?.loadSeats() ?? {};
   const agentMeta: Record<number, { palette?: number; hueShift?: number; seatId?: string }> = {};
   for (const [id, agent] of store) {
@@ -653,6 +669,9 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     if (agent.terminalRef?.name) {
       terminalNames[id] = agent.terminalRef.name;
     }
+    if (agent.leadAgentId !== undefined) {
+      teammateAgents[id] = true;
+    }
     const persisted = persistedSeats[String(id)];
     agentMeta[id] = {
       palette: agent.palette,
@@ -669,6 +688,7 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     ptyBackedAgents,
     customTitles,
     terminalNames,
+    teammateAgents,
   };
   // Crash-glyph reload state reaches outside what an unprivileged spectator
   // was ever told (agentCrashed itself is privileged-delivery, see

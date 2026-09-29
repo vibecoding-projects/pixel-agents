@@ -399,6 +399,40 @@ describe('clientMessageHandler: standalone pty dispatch', () => {
     });
   });
 
+  describe('moveSessionHere', () => {
+    it('privileged: dispatches to moveSessionHere and reports a refusal point-to-point', async () => {
+      const { host } = makeFakePtyHost();
+      const ctx = makeCtx(host);
+      store.set(4, createTestAgent({ id: 4, isExternal: true, jsonlFile: '/nope/gone.jsonl' }));
+      handleClientMessage({ type: 'moveSessionHere', id: 4 }, send, ctx);
+      await new Promise((r) => setTimeout(r, 10));
+      expect(sent.at(-1)).toMatchObject({ type: 'moveSessionFailed', id: 4 });
+    });
+
+    it('unprivileged: no-op', async () => {
+      const { host } = makeFakePtyHost();
+      const ctx = makeCtx(host, false);
+      store.set(4, createTestAgent({ id: 4, isExternal: true, jsonlFile: '/nope/gone.jsonl' }));
+      handleClientMessage({ type: 'moveSessionHere', id: 4 }, send, ctx);
+      await new Promise((r) => setTimeout(r, 10));
+      expect(sent).toHaveLength(0);
+    });
+  });
+
+  describe('existingAgents teammateAgents', () => {
+    it('lists agents that have a leadAgentId', () => {
+      const ctx = makeCtx(null);
+      store.set(1, createTestAgent({ id: 1 }));
+      store.set(
+        2,
+        createTestAgent({ id: 2, sessionId: 'sess-2', leadAgentId: 1, agentName: 'researcher' }),
+      );
+      handleClientMessage({ type: 'webviewReady' }, send, ctx);
+      const existing = sent.find((m) => m.type === 'existingAgents')!;
+      expect(existing.teammateAgents).toEqual({ 2: true });
+    });
+  });
+
   describe('acknowledgeCrash', () => {
     it('privileged: broadcasts crashAcknowledged', () => {
       const { host } = makeFakePtyHost();
