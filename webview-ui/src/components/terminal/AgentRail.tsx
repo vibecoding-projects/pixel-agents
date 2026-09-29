@@ -3,6 +3,10 @@ import { useRef, useState } from 'react';
 export interface RailAgent {
   id: number;
   label: string;
+  /** False for an adopted session still running outside the office. */
+  attached: boolean;
+  moveState: 'idle' | 'pending' | 'error';
+  moveError?: string;
 }
 
 interface AgentRailProps {
@@ -16,9 +20,12 @@ interface AgentRailProps {
   width: number;
 }
 
-/** Vertical list of agents on the left edge of the terminal band. Click
- *  focuses that agent's terminal; ✎ renames inline; ✕ closes the agent. The
- *  rail/pane divider (TerminalBand) is the visual separator — no own right border. */
+/** Vertical list of agents on the left edge of the terminal band: attached
+ *  (pty-backed) ones and adopted sessions still running outside the office,
+ *  which render muted with an "outside" marker. Click focuses that agent's
+ *  terminal (or moves an outside session in); ✎ renames inline; ✕ closes the
+ *  agent. The rail/pane divider (TerminalBand) is the visual separator — no
+ *  own right border. */
 export function AgentRail({
   agents,
   focusedId,
@@ -71,12 +78,27 @@ export function AgentRail({
                 onFocus(agent.id);
               }
             }}
-            className="flex items-center gap-4 px-6 py-4 cursor-pointer border-b-2 border-border text-2xs"
+            className={`flex items-center gap-4 px-6 py-4 cursor-pointer border-b-2 border-border text-2xs${
+              agent.attached ? '' : ' opacity-60'
+            }`}
             style={{
               background: focused ? 'var(--color-active-bg)' : 'transparent',
               color: focused ? 'var(--color-text)' : 'var(--color-text-muted)',
             }}
           >
+            {!agent.attached && (
+              <span
+                className="text-2xs text-text-muted"
+                title={
+                  agent.moveState === 'pending'
+                    ? 'Moving this session here…'
+                    : (agent.moveError ?? 'Running outside the office — click to move it here')
+                }
+                aria-label="outside"
+              >
+                {agent.moveState === 'pending' ? '⋯' : '⇠'}
+              </span>
+            )}
             {isEditing ? (
               <input
                 type="text"

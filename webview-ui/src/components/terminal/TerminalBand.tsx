@@ -208,12 +208,31 @@ export function TerminalBand({
         aria-label="Resize agent rail"
       />
       {focused ? (
-        <TerminalPane
-          agentId={focused.id}
-          agentName={focused.label}
-          bus={bus}
-          onRestartAgent={onRestartAgent}
-        />
+        focused.attached ? (
+          <TerminalPane
+            agentId={focused.id}
+            agentName={focused.label}
+            bus={bus}
+            onRestartAgent={onRestartAgent}
+          />
+        ) : (
+          // An adopted session still running outside the office: clicking
+          // (re)requests the move through the same path as the rail entry.
+          <div
+            className={`flex-1 flex items-center justify-center text-2xs px-8 text-center ${
+              focused.moveState === 'error' ? 'text-danger' : 'text-text-muted'
+            } ${focused.moveState === 'pending' ? '' : 'cursor-pointer'}`}
+            onClick={focused.moveState === 'pending' ? undefined : () => onFocus(focused.id)}
+            role={focused.moveState === 'pending' ? undefined : 'button'}
+            data-testid="move-session-placeholder"
+          >
+            {focused.moveState === 'pending'
+              ? 'Moving this session here…'
+              : focused.moveState === 'error'
+                ? `${focused.moveError ?? 'Move failed.'} Click to try again.`
+                : 'This session runs in another terminal. Click to move it into the office.'}
+          </div>
+        )
       ) : (
         <div className="flex-1 flex items-center justify-center text-2xs text-text-muted">
           No agent terminal

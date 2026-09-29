@@ -10,6 +10,7 @@ import { IntroBubble } from './components/IntroBubble.js';
 import { MigrationNotice } from './components/MigrationNotice.js';
 import { NewAgentModal } from './components/NewAgentModal.js';
 import { SettingsModal } from './components/SettingsModal.js';
+import type { RailAgent } from './components/terminal/AgentRail.js';
 import type { PanelPosition } from './components/terminal/panelPosition.js';
 import {
   loadPanelOpen,
@@ -114,6 +115,10 @@ function App() {
     customTitles,
     terminalNames,
     ptyEventBus,
+    teammateIds,
+    movePending,
+    moveErrors,
+    markMovePending,
   } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty);
 
   // ── Standalone terminal band (browser runtime only) ──
@@ -146,11 +151,14 @@ function App() {
       setIsNewAgentOpen(true);
     }
   }, [launchAgentFailure]);
+  // Every top-level agent: attached (pty-backed) ones AND adopted sessions
+  // still running outside the office. Teammates stay out (clicking one
+  // reaches its lead); sub-agents are never in `agents`.
   const railAgents = useMemo(
     () =>
       agents
-        .filter((id) => ptyBackedByAgent[id])
-        .map((id) => ({
+        .filter((id) => !teammateIds[id] && !getOfficeState().subagentMeta.has(id))
+        .map((id): RailAgent => ({
           id,
           label: characterLabel({
             customTitle: customTitles[id],
@@ -158,24 +166,29 @@ function App() {
             terminalName: terminalNames[id],
             id,
           }),
+          attached: ptyBackedByAgent[id] === true,
+          moveState: movePending[id] ? 'pending' : moveErrors[id] ? 'error' : 'idle',
+          moveError: moveErrors[id],
         })),
-    [agents, ptyBackedByAgent, customTitles, terminalNames],
+    [agents, teammateIds, ptyBackedByAgent, customTitles, terminalNames, movePending, moveErrors],
   );
 
   // Prune a dead terminal focus: the band falls back visually on its own,
   // but App state (and OfficeCanvas's focusedAgentId prop) must not keep
   // pointing at a closed agent.
   useEffect(() => {
-    if (focusedTerminalId !== null && !ptyBackedByAgent[focusedTerminalId]) {
+    if (focusedTerminalId !== null && !railAgents.some((a) => a.id === focusedTerminalId)) {
       setFocusedTerminalId(null);
     }
-  }, [focusedTerminalId, ptyBackedByAgent]);
+  }, [focusedTerminalId, railAgents]);
 
   // A spawn the user just submitted auto-opens the band on the new agent as
   // soon as its rail entry materializes (v2's openForNewAgent).
   useEffect(() => {
     const prev = prevRailIdsRef.current;
-    const fresh = railAgents.filter((a) => !prev.has(a.id));
+    // Only ATTACHED entries count: a scanner adoption landing during a pending
+    // spawn must not steal the auto-open onto a placeholder.
+    const fresh = railAgents.filter((a) => a.attached && !prev.has(a.id));
     prevRailIdsRef.current = new Set(railAgents.map((a) => a.id));
     if (pendingSpawnOpenRef.current && fresh.length > 0) {
       pendingSpawnOpenRef.current = false;
@@ -339,6 +352,32 @@ function App() {
     transport.send({ type: 'closeAgent', id });
   }, []);
 
+  // An adopted session still running outside the office can be moved in by
+  // clicking its character or rail entry. The server enforces the same rule
+  // (moveRefusalReason); this is the UX gate.
+  const isMovable = useCallback(
+    (id: number) =>
+      isBrowserRuntime && hasPrivilegedToken && !ptyBackedByAgent[id] && !teammateIds[id],
+    [ptyBackedByAgent, teammateIds],
+  );
+
+  const requestMove = useCallback(
+    (id: number) => {
+      if (!isMovable(id) || movePending[id]) return;
+      markMovePending(id);
+      transport.send({ type: 'moveSessionHere', id });
+    },
+    [isMovable, movePending, markMovePending],
+  );
+
+  const handleRailFocus = useCallback(
+    (id: number) => {
+      setFocusedTerminalId(id);
+      requestMove(id); // no-op for attached agents
+    },
+    [requestMove],
+  );
+
   const handleRenameAgent = useCallback((id: number, customTitle: string) => {
     transport.send({ type: 'renameAgent', id, customTitle });
   }, []);
@@ -358,12 +397,17 @@ function App() {
       }
       const focusId = meta ? meta.parentAgentId : agentId;
       transport.send({ type: 'focusAgent', id: focusId });
-      // Browser runtime: also focus that agent's pane in the terminal band.
+      // Browser runtime: also focus that agent's pane in the terminal band,
+      // or start moving an outside session in (placeholder shows meanwhile).
       if (ptyBackedByAgent[focusId]) {
         setFocusedTerminalId(focusId);
+      } else if (isMovable(focusId)) {
+        setFocusedTerminalId(focusId);
+        setTerminalOpen(true);
+        requestMove(focusId);
       }
     },
-    [ptyBackedByAgent],
+    [ptyBackedByAgent, isMovable, requestMove, setTerminalOpen],
   );
 
   // Selection drives the band: selecting a character whose agent has a
@@ -378,12 +422,12 @@ function App() {
       const os = getOfficeState();
       const meta = os.subagentMeta.get(selectedId);
       const resolved = meta ? meta.parentAgentId : selectedId;
-      if (ptyBackedByAgent[resolved]) {
+      if (ptyBackedByAgent[resolved] || isMovable(resolved)) {
         setFocusedTerminalId(resolved);
         setTerminalOpen(true);
       }
     },
-    [ptyBackedByAgent, setTerminalOpen],
+    [ptyBackedByAgent, isMovable, setTerminalOpen],
   );
 
   const officeState = getOfficeState();
@@ -794,7 +838,7 @@ function App() {
         <TerminalBand
           agents={railAgents}
           focusedId={focusedTerminalId}
-          onFocus={setFocusedTerminalId}
+          onFocus={handleRailFocus}
           onClose={handleCloseAgent}
           onRestartAgent={(id) => transport.send({ type: 'restartAgent', id })}
           onRename={handleRenameAgent}

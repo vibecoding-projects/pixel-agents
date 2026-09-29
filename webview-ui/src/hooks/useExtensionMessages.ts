@@ -35,6 +35,14 @@ import { toPtyEvent } from './ptyEvents.js';
 const isHeadlessAgent = (isExternal: boolean | undefined): boolean =>
   isExternal === true && !isBrowserRuntime;
 
+/** Copy of `map` without `id` (same reference when `id` is absent). */
+function without<T>(map: Record<number, T>, id: number): Record<number, T> {
+  if (!(id in map)) return map;
+  const next = { ...map };
+  delete next[id];
+  return next;
+}
+
 export interface SubagentCharacter {
   id: number;
   parentAgentId: number;
@@ -137,6 +145,14 @@ interface ExtensionMessageState {
   terminalNames: Record<number, string>;
   /** Imperative per-agent pty event fan-out for xterm panes. */
   ptyEventBus: PtyEventBus;
+  /** Teammates of a lead — never in the rail, never movable. */
+  teammateIds: Record<number, boolean>;
+  /** moveSessionHere requests in flight, keyed by agent id. */
+  movePending: Record<number, boolean>;
+  /** Last moveSessionFailed reason per agent, until the next attempt. */
+  moveErrors: Record<number, string>;
+  /** Mark a move as requested (clears a previous error for that agent). */
+  markMovePending: (id: number) => void;
 }
 
 function saveAgentSeats(os: OfficeState): void {
@@ -186,6 +202,14 @@ export function useExtensionMessages(
   const [launchAgentFailure, setLaunchAgentFailure] = useState<LaunchAgentFailure | null>(null);
   const launchFailureSeqRef = useRef(0);
   const [ptyBackedByAgent, setPtyBackedByAgent] = useState<Record<number, boolean>>({});
+  /** Agents that are teammates of a lead (from agentCreated.isTeammate,
+   *  existingAgents.teammateAgents, or agentTeamInfo with a leadAgentId).
+   *  Teammates never get a rail entry and are never movable. */
+  const [teammateIds, setTeammateIds] = useState<Record<number, boolean>>({});
+  /** moveSessionHere requests in flight, keyed by agent id. */
+  const [movePending, setMovePending] = useState<Record<number, boolean>>({});
+  /** Last moveSessionFailed reason per agent, until the next attempt. */
+  const [moveErrors, setMoveErrors] = useState<Record<number, string>>({});
   const [customTitles, setCustomTitles] = useState<Record<number, string>>({});
   const [terminalNames, setTerminalNames] = useState<Record<number, string>>({});
   // Per-agent pty event fan-out for xterm panes. A ref (not state): subscribers
@@ -343,6 +367,7 @@ export function useExtensionMessages(
         }
         const folderName = msg.folderName as string | undefined;
         const isTeammate = msg.isTeammate as boolean | undefined;
+        if (isTeammate) setTeammateIds((prev) => ({ ...prev, [id]: true }));
         const teammateName = msg.teammateName as string | undefined;
         const teammateParentId = msg.parentAgentId as number | undefined;
         const teamName = msg.teamName as string | undefined;
@@ -408,6 +433,9 @@ export function useExtensionMessages(
           return next;
         });
         ptyEventBus.remove(id);
+        setTeammateIds((prev) => without(prev, id));
+        setMovePending((prev) => without(prev, id));
+        setMoveErrors((prev) => without(prev, id));
         setAgentTools((prev) => {
           if (!(id in prev)) return prev;
           const next = { ...prev };
@@ -449,6 +477,10 @@ export function useExtensionMessages(
         }
         if (Object.keys(restoredTerminalNames).length > 0) {
           setTerminalNames((prev) => ({ ...prev, ...restoredTerminalNames }));
+        }
+        const teammateAgents = (msg.teammateAgents || {}) as Record<number, boolean>;
+        if (Object.keys(teammateAgents).length > 0) {
+          setTeammateIds((prev) => ({ ...prev, ...teammateAgents }));
         }
         const headlessAgents: Record<number, boolean> = {};
         for (const id of incoming) {
@@ -843,6 +875,20 @@ export function useExtensionMessages(
             return { ...prev, [id]: title };
           });
         }
+      } else if (msg.type === 'sessionMoved') {
+        const id = msg.id as number;
+        setPtyBackedByAgent((prev) => ({ ...prev, [id]: true }));
+        if (typeof msg.terminalName === 'string' && msg.terminalName) {
+          const terminalName = msg.terminalName as string;
+          setTerminalNames((prev) => ({ ...prev, [id]: terminalName }));
+        }
+        setMovePending((prev) => without(prev, id));
+        setMoveErrors((prev) => without(prev, id));
+      } else if (msg.type === 'moveSessionFailed') {
+        const id = msg.id as number;
+        const reason = String(msg.reason ?? 'Move failed.');
+        setMovePending((prev) => without(prev, id));
+        setMoveErrors((prev) => ({ ...prev, [id]: reason }));
       } else if (msg.type === 'hooksStatus') {
         if (typeof msg.installed === 'boolean' && typeof msg.providerId === 'string') {
           const providerId = msg.providerId as string;
@@ -901,6 +947,8 @@ export function useExtensionMessages(
           msg.leadAgentId as number | undefined,
           msg.teamUsesTmux as boolean | undefined,
         );
+        // Late linking: a plain adopted agent turned out to be a teammate.
+        if (msg.leadAgentId !== undefined) setTeammateIds((prev) => ({ ...prev, [id]: true }));
       } else if (msg.type === 'agentContextUsage') {
         const id = msg.id as number;
         os.setAgentContext(id, msg.contextTokens as number, msg.maxContextTokens as number);
@@ -977,5 +1025,12 @@ export function useExtensionMessages(
     customTitles,
     terminalNames,
     ptyEventBus,
+    teammateIds,
+    movePending,
+    moveErrors,
+    markMovePending: useCallback((id: number) => {
+      setMovePending((prev) => ({ ...prev, [id]: true }));
+      setMoveErrors((prev) => without(prev, id));
+    }, []),
   };
 }
