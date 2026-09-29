@@ -377,3 +377,125 @@ describe('updateCharacter — rest-seat FSM', () => {
     expect(ch.restSeatId).toBeNull();
   });
 });
+
+describe('updateCharacter — claimed work seats', () => {
+  it('an idle character releases its claimed seat when it walks away to wander', () => {
+    const tileMap = openTileMap(5, 5);
+    const workSeat = makeSeat('work-1', 2, 2, 'work', true);
+    const seats = new Map<string, Seat>([['work-1', workSeat]]);
+    const blockedTiles = new Set<string>(['2,2']);
+    const walkableTiles = getWalkableTiles(tileMap, blockedTiles);
+
+    const ch = createCharacter(1, 0, 'work-1', workSeat); // spawned on its seat
+    ch.state = CharacterState.IDLE; // stepped off already
+    ch.wanderTimer = 0.05;
+    ch.wanderCount = 0;
+
+    updateCharacter(ch, 0.1, walkableTiles, seats, tileMap, blockedTiles);
+
+    expect(ch.state).toBe(CharacterState.WALK);
+    expect(ch.seatId).toBeNull();
+    expect(workSeat.assigned).toBe(false);
+    expect(ch.preferredSeatId).toBe('work-1');
+  });
+
+  it('a seatless AGENT that should be seated never enters TYPE: it walks to its waiting spot', () => {
+    const tileMap = openTileMap(5, 5);
+    const seats = new Map<string, Seat>();
+    const blockedTiles = new Set<string>();
+    const walkableTiles = getWalkableTiles(tileMap, blockedTiles);
+
+    const ch = createCharacter(1, 0, null, null); // (1,1)
+    ch.state = CharacterState.IDLE;
+    ch.isActive = true;
+    ch.seatWait = true;
+    ch.seatWaitTarget = { col: 3, row: 1, facing: Direction.UP };
+
+    updateCharacter(ch, 0.1, walkableTiles, seats, tileMap, blockedTiles);
+    expect(ch.state).toBe(CharacterState.WALK);
+    expect(ch.path.at(-1)).toEqual({ col: 3, row: 1 });
+  });
+
+  it('at its waiting spot an agent stands IDLE facing the desk and does not re-path', () => {
+    const tileMap = openTileMap(5, 5);
+    const seats = new Map<string, Seat>();
+    const blockedTiles = new Set<string>();
+    const walkableTiles = getWalkableTiles(tileMap, blockedTiles);
+
+    const ch = createCharacter(1, 0, null, null);
+    ch.state = CharacterState.IDLE;
+    ch.isActive = true;
+    ch.seatWait = true;
+    ch.seatWaitTarget = { col: 1, row: 1, facing: Direction.LEFT }; // already here
+    ch.wanderTimer = 0; // would wander if the wait were ignored
+
+    updateCharacter(ch, 0.1, walkableTiles, seats, tileMap, blockedTiles);
+    updateCharacter(ch, 0.1, walkableTiles, seats, tileMap, blockedTiles);
+    expect(ch.state).toBe(CharacterState.IDLE);
+    expect(ch.path).toHaveLength(0);
+    expect(ch.dir).toBe(Direction.LEFT);
+  });
+
+  it('an AGENT found in TYPE with no seat and no couch steps to IDLE (never types on the floor)', () => {
+    const tileMap = openTileMap(5, 5);
+    const seats = new Map<string, Seat>();
+    const blockedTiles = new Set<string>();
+    const walkableTiles = getWalkableTiles(tileMap, blockedTiles);
+
+    const ch = createCharacter(1, 0, null, null); // createCharacter starts in TYPE
+    ch.isActive = true;
+
+    updateCharacter(ch, 0.1, walkableTiles, seats, tileMap, blockedTiles);
+    expect(ch.state).toBe(CharacterState.IDLE);
+  });
+
+  it('a seatless SUB-AGENT still types in place', () => {
+    const tileMap = openTileMap(5, 5);
+    const seats = new Map<string, Seat>();
+    const blockedTiles = new Set<string>();
+    const walkableTiles = getWalkableTiles(tileMap, blockedTiles);
+
+    const ch = createCharacter(-1, 0, null, null);
+    ch.isSubagent = true;
+    ch.state = CharacterState.IDLE;
+    ch.isActive = true;
+
+    updateCharacter(ch, 0.1, walkableTiles, seats, tileMap, blockedTiles);
+    expect(ch.state).toBe(CharacterState.TYPE);
+  });
+
+  it('an unreachable claimed seat is released and the agent waits instead of typing on the floor', () => {
+    const tileMap = openTileMap(5, 5);
+    const workSeat = makeSeat('work-1', 4, 4, 'work', true);
+    const seats = new Map<string, Seat>([['work-1', workSeat]]);
+    // Wall the seat off: its only neighbours are blocked.
+    const blockedTiles = new Set<string>(['4,4', '3,4', '4,3']);
+    const walkableTiles = getWalkableTiles(tileMap, blockedTiles);
+
+    const ch = createCharacter(1, 0, null, null); // (1,1)
+    ch.state = CharacterState.IDLE;
+    ch.isActive = true;
+    ch.seatId = 'work-1'; // OfficeState just claimed it for us
+
+    updateCharacter(ch, 0.1, walkableTiles, seats, tileMap, blockedTiles);
+    expect(ch.state).not.toBe(CharacterState.TYPE);
+    expect(ch.seatId).toBeNull();
+    expect(workSeat.assigned).toBe(false);
+    expect(ch.seatWait).toBe(true);
+  });
+
+  it('arriving somewhere with no claim leaves an agent IDLE, not TYPE', () => {
+    const tileMap = openTileMap(5, 5);
+    const seats = new Map<string, Seat>();
+    const blockedTiles = new Set<string>();
+    const walkableTiles = getWalkableTiles(tileMap, blockedTiles);
+
+    const ch = createCharacter(1, 0, null, null);
+    ch.isActive = true;
+    ch.state = CharacterState.WALK;
+    ch.path = []; // arrival tick
+
+    updateCharacter(ch, 0.1, walkableTiles, seats, tileMap, blockedTiles);
+    expect(ch.state).toBe(CharacterState.IDLE);
+  });
+});

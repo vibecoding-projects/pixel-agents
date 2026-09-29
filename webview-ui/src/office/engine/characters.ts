@@ -157,6 +157,15 @@ export function updateCharacter(
 
   switch (ch.state) {
     case CharacterState.TYPE: {
+      // An agent character can only TYPE on a claimed seat or a claimed couch.
+      // createCharacter starts in TYPE and a seatless spawn/restore would
+      // otherwise type on the floor forever.
+      if (!ch.isSubagent && !ch.seatId && !ch.restSeatId) {
+        ch.state = CharacterState.IDLE;
+        ch.frame = 0;
+        ch.frameTimer = 0;
+        break;
+      }
       if (ch.frameTimer >= TYPE_FRAME_DURATION_SEC) {
         ch.frameTimer -= TYPE_FRAME_DURATION_SEC;
         ch.frame = (ch.frame + 1) % 2;
@@ -199,38 +208,70 @@ export function updateCharacter(
           ch.restSeatId = null;
         }
         if (!ch.seatId) {
-          ch.state = CharacterState.TYPE;
-          ch.frame = 0;
-          ch.frameTimer = 0;
+          if (ch.isSubagent) {
+            // Sub-agents work beside their parent, never in a seat.
+            ch.state = CharacterState.TYPE;
+            ch.frame = 0;
+            ch.frameTimer = 0;
+            break;
+          }
+          // An agent with nothing to claim (OfficeState's pre-tick step sets
+          // seatWait/seatWaitTarget): walk to the waiting spot, then stand
+          // there facing the desk. Never TYPE without a seat.
+          const target = ch.seatWaitTarget;
+          if (target && (ch.tileCol !== target.col || ch.tileRow !== target.row)) {
+            const path = findPath(
+              ch.tileCol,
+              ch.tileRow,
+              target.col,
+              target.row,
+              tileMap,
+              blockedTiles,
+            );
+            if (path.length > 0) {
+              ch.path = path;
+              ch.moveProgress = 0;
+              ch.state = CharacterState.WALK;
+              ch.frame = 0;
+              ch.frameTimer = 0;
+            }
+          } else if (target) {
+            ch.dir = target.facing;
+          }
           break;
         }
         const seat = seats.get(ch.seatId);
         if (seat) {
-          const path = findPath(
-            ch.tileCol,
-            ch.tileRow,
-            seat.seatCol,
-            seat.seatRow,
-            tileMap,
-            blockedTiles,
-          );
+          const atSeat = ch.tileCol === seat.seatCol && ch.tileRow === seat.seatRow;
+          const path = atSeat
+            ? []
+            : findPath(ch.tileCol, ch.tileRow, seat.seatCol, seat.seatRow, tileMap, blockedTiles);
           if (path.length > 0) {
             ch.path = path;
             ch.moveProgress = 0;
             ch.state = CharacterState.WALK;
             ch.frame = 0;
             ch.frameTimer = 0;
-          } else {
+          } else if (atSeat) {
             ch.state = CharacterState.TYPE;
             ch.dir = seat.facingDir;
             ch.frame = 0;
             ch.frameTimer = 0;
+          } else if (!ch.isSubagent) {
+            // Claimed but unreachable (furniture in the corridor): give it
+            // back and wait; the pre-tick step retries next tick.
+            releaseWorkSeat(ch, seats);
+            ch.seatWait = true;
           }
         }
         break;
       }
       ch.wanderTimer -= dt;
       if (ch.wanderTimer <= 0) {
+        // Walking away from the desk is the release point: an idle agent's
+        // computer goes back to the pool the moment it leaves (rest seats
+        // are claimed separately below).
+        releaseWorkSeat(ch, seats);
         // Wandered enough — rest on a couch (sub-agents never claim couches).
         if (ch.wanderCount >= ch.wanderLimit && !ch.restSeatId && !ch.isSubagent) {
           const restUid = findNearestFreeRestSeat(ch, seats);
@@ -303,7 +344,9 @@ export function updateCharacter(
 
         if (shouldBeSeated(ch, now)) {
           if (!ch.seatId) {
-            ch.state = CharacterState.TYPE;
+            // Sub-agents type where they stand; an agent waits (IDLE handles
+            // the waiting spot next tick).
+            ch.state = ch.isSubagent ? CharacterState.TYPE : CharacterState.IDLE;
           } else {
             const seat = seats.get(ch.seatId);
             if (seat && ch.tileCol === seat.seatCol && ch.tileRow === seat.seatRow) {
