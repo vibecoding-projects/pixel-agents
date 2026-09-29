@@ -149,19 +149,33 @@ export class OfficeState {
       seat.assigned = false;
     }
 
-    // Every claim is transient; rebuild them from preferences. Preferences
-    // that no longer name a WORK seat are dropped.
+    // Claims are re-derived against the fresh seat map. A claim whose chair
+    // survived as a work seat is KEPT (a layout edit must never unseat an agent
+    // sitting at its desk — every editor action rebuilds); preferences that no
+    // longer name a work seat are dropped; then agents that should be seated
+    // and hold no claim take one.
     const now = Date.now();
     for (const ch of this.characters.values()) {
+      const prior = ch.seatId;
       ch.restSeatId = null;
       ch.seatId = null;
       ch.seatWait = false;
       ch.seatWaitTarget = null;
       const pref = ch.preferredSeatId ? this.seats.get(ch.preferredSeatId) : undefined;
       if (!pref || pref.role !== 'work') ch.preferredSeatId = null;
+      const kept = prior ? this.seats.get(prior) : undefined;
+      if (kept && kept.role === 'work' && !kept.assigned) {
+        kept.assigned = true;
+        ch.seatId = prior;
+        ch.tileCol = kept.seatCol;
+        ch.tileRow = kept.seatRow;
+        ch.x = kept.seatCol * TILE_SIZE + TILE_SIZE / 2;
+        ch.y = kept.seatRow * TILE_SIZE + TILE_SIZE / 2;
+        ch.dir = kept.facingDir;
+      }
     }
     for (const ch of this.characters.values()) {
-      if (ch.isSubagent || !shouldBeSeated(ch, now)) continue;
+      if (ch.isSubagent || ch.seatId || !shouldBeSeated(ch, now)) continue;
       const areaLabels = ch.folderName ? this.areaMappings[ch.folderName] : undefined;
       const uid = claimWorkSeat(ch, this.seats, (u) => this.seatZone(u), areaLabels);
       if (!uid) continue;
@@ -176,14 +190,17 @@ export class OfficeState {
       ch.dir = seat.facingDir;
     }
 
-    // Relocate any characters that ended up outside bounds or on non-walkable tiles
+    // Relocate any characters that ended up outside bounds or on non-walkable
+    // tiles (a chair tile is fine: the character steps off it on its own).
     for (const ch of this.characters.values()) {
       if (ch.seatId) continue; // seated characters are fine
       if (
         ch.tileCol < 0 ||
         ch.tileCol >= layout.cols ||
         ch.tileRow < 0 ||
-        ch.tileRow >= layout.rows
+        ch.tileRow >= layout.rows ||
+        (!isWalkable(ch.tileCol, ch.tileRow, this.tileMap, this.blockedTiles) &&
+          this.getSeatAtTile(ch.tileCol, ch.tileRow) === null)
       ) {
         this.relocateCharacterToWalkable(ch);
       }

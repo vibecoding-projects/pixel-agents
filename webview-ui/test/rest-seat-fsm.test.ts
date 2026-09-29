@@ -499,3 +499,42 @@ describe('updateCharacter — claimed work seats', () => {
     expect(ch.state).toBe(CharacterState.IDLE);
   });
 });
+
+describe('updateCharacter — manual seating holds the chair for the idle window', () => {
+  it('an idle agent arriving at its claimed seat sits down with the inactive seat timer', () => {
+    const tileMap = openTileMap(5, 5);
+    const workSeat = makeSeat('work-1', 2, 2, 'work', true, Direction.UP);
+    const seats = new Map<string, Seat>([['work-1', workSeat]]);
+    const blockedTiles = new Set<string>(['2,2']);
+    const walkableTiles = getWalkableTiles(tileMap, blockedTiles);
+
+    const ch = createCharacter(1, 0, 'work-1', workSeat); // claimed + preferred
+    ch.state = CharacterState.WALK;
+    ch.path = []; // arrival tick, standing on the seat tile
+    ch.seatTimer = 0;
+
+    updateCharacter(ch, 0.1, walkableTiles, seats, tileMap, blockedTiles);
+
+    expect(ch.state).toBe(CharacterState.TYPE);
+    expect(ch.dir).toBe(Direction.UP);
+    expect(ch.seatTimer).toBeGreaterThan(0);
+    expect(ch.seatId).toBe('work-1');
+  });
+
+  it('after a turn end (seatTimer sentinel) arrival steps off instead of sitting', () => {
+    const tileMap = openTileMap(5, 5);
+    const workSeat = makeSeat('work-1', 2, 2, 'work', true);
+    const seats = new Map<string, Seat>([['work-1', workSeat]]);
+    const blockedTiles = new Set<string>(['2,2']);
+    const walkableTiles = getWalkableTiles(tileMap, blockedTiles);
+
+    const ch = createCharacter(1, 0, 'work-1', workSeat);
+    ch.state = CharacterState.WALK;
+    ch.path = [];
+    ch.seatTimer = -1;
+
+    updateCharacter(ch, 0.1, walkableTiles, seats, tileMap, blockedTiles);
+
+    expect(ch.state).toBe(CharacterState.IDLE);
+  });
+});

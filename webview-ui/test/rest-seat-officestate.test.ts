@@ -19,7 +19,7 @@ import { AWAITING_REST_DELAY_MS } from '../src/constants.js';
 import { OfficeState } from '../src/office/engine/officeState.js';
 import { buildDynamicCatalog } from '../src/office/layout/furnitureCatalog.js';
 import type { OfficeLayout } from '../src/office/types.js';
-import { TileType } from '../src/office/types.js';
+import { CharacterState, TileType } from '../src/office/types.js';
 
 /** Install a minimal in-memory catalog: a desk-facing chair + monitor (work
  *  seat when paired) and a couch (always rest, per its own orientation). */
@@ -155,11 +155,29 @@ describe('OfficeState rest-claim lifecycle', () => {
     os.rebuildFromLayout(layout);
 
     expect(ch.restSeatId).toBeNull();
-    // Claims are transient: an IDLE agent keeps its PREFERENCE, not the chair.
+    // A layout edit must not unseat an agent that is sitting on its chair:
+    // the current claim survives when the chair still exists as a work seat.
     expect(ch.preferredSeatId).toBe(workSeatId);
-    expect(ch.seatId).toBeNull();
-    expect(os.seats.get(workSeatId)!.assigned).toBe(false);
+    expect(ch.seatId).toBe(workSeatId);
+    expect(os.seats.get(workSeatId)!.assigned).toBe(true);
     expect(os.seats.get('couch-1')!.assigned).toBe(false);
+  });
+
+  it('rebuildFromLayout keeps an IDLE agent sitting on its claimed chair (layout edits must not unseat it)', () => {
+    const layout = layoutWithWorkAndRestSeats();
+    const os = new OfficeState(layout);
+    os.addAgent(1, undefined, undefined, undefined, true);
+    const ch = os.characters.get(1)!;
+    const chair = os.seats.get(ch.seatId!)!;
+    expect(ch.state).toBe(CharacterState.TYPE);
+
+    os.rebuildFromLayout(layoutWithWorkAndRestSeats()); // same furniture, new objects
+
+    expect(ch.seatId).toBe(chair.uid);
+    expect(os.seats.get(chair.uid)!.assigned).toBe(true);
+    expect(ch.tileCol).toBe(chair.seatCol);
+    expect(ch.tileRow).toBe(chair.seatRow);
+    expect(ch.state).toBe(CharacterState.TYPE);
   });
 
   it('rebuildFromLayout re-claims for an ACTIVE agent whose preferred chair demoted to rest', () => {

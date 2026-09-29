@@ -1,6 +1,8 @@
 import {
   AWAITING_REST_DELAY_MS,
   DEFAULT_MAX_CONTEXT_TOKENS,
+  INACTIVE_SEAT_TIMER_MIN_SEC,
+  INACTIVE_SEAT_TIMER_RANGE_SEC,
   STEP_OFF_PAUSE_MAX_SEC,
   STEP_OFF_PAUSE_MIN_SEC,
   TYPE_FRAME_DURATION_SEC,
@@ -371,10 +373,26 @@ export function updateCharacter(
             ch.wanderTimer = randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC);
           }
         } else {
-          ch.state = CharacterState.IDLE;
-          ch.wanderTimer = isChairTile(ch.tileCol, ch.tileRow, seats)
-            ? randomRange(STEP_OFF_PAUSE_MIN_SEC, STEP_OFF_PAUSE_MAX_SEC)
-            : randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC);
+          const claimed = ch.seatId ? seats.get(ch.seatId) : undefined;
+          if (
+            claimed &&
+            ch.seatTimer !== -1 &&
+            ch.tileCol === claimed.seatCol &&
+            ch.tileRow === claimed.seatRow
+          ) {
+            // Manual seating (reassignSeat / sendToSeat) of an idle agent: sit
+            // for the inactive window, then step off and release like any
+            // other idle sitter. The -1 sentinel (turn just ended) skips it.
+            ch.state = CharacterState.TYPE;
+            ch.dir = claimed.facingDir;
+            ch.seatTimer =
+              INACTIVE_SEAT_TIMER_MIN_SEC + Math.random() * INACTIVE_SEAT_TIMER_RANGE_SEC;
+          } else {
+            ch.state = CharacterState.IDLE;
+            ch.wanderTimer = isChairTile(ch.tileCol, ch.tileRow, seats)
+              ? randomRange(STEP_OFF_PAUSE_MIN_SEC, STEP_OFF_PAUSE_MAX_SEC)
+              : randomRange(WANDER_PAUSE_MIN_SEC, WANDER_PAUSE_MAX_SEC);
+          }
         }
         ch.frame = 0;
         ch.frameTimer = 0;
