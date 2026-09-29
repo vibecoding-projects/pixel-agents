@@ -36,6 +36,14 @@ export interface AgentState {
   providerId?: string;
   /** Set when SessionEnd(reason=clear) fires; cleared when SessionStart(source=clear) reassigns */
   pendingClear?: boolean;
+  /** Set while an adopted session is being moved in-office: the outgoing
+   *  process's SessionEnd must not remove the agent. Runtime-only. */
+  pendingHandoff?: boolean;
+  /** A moveSessionHere is in progress for this agent. Runtime-only. */
+  moveInFlight?: boolean;
+  /** Identity of the move that armed the current latch (its grace timer only
+   *  clears its own latch). Runtime-only. */
+  moveToken?: object;
   /** Hook-generated tool ID for PreToolUse/PostToolUse correlation */
   currentHookToolId?: string;
   /** Tool name from the most recent PreToolUse, used to correlate a later SubagentStart

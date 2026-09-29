@@ -857,4 +857,69 @@ describe('HookEventHandler', () => {
       }
     });
   });
+  describe('SessionEnd during a move (pendingHandoff)', () => {
+    it('does not end the session, clears the latch, clears tools, and sends no waiting status', () => {
+      const onSessionEnd = vi.fn();
+      handler.setLifecycleCallbacks({ onSessionEnd });
+      const agent = createTestAgent({ id: 1, sessionId: 'sess-1', pendingHandoff: true });
+      agent.activeToolIds.add('t1');
+      agent.activeToolStatuses.set('t1', 'Reading x');
+      agent.activeToolNames.set('t1', 'Read');
+      agents.set(1, agent);
+      handler.registerAgent('sess-1', 1);
+
+      handler.handleEvent('claude', {
+        hook_event_name: 'SessionEnd',
+        session_id: 'sess-1',
+        reason: 'other',
+      });
+
+      expect(onSessionEnd).not.toHaveBeenCalled();
+      expect(agent.pendingHandoff).toBe(false);
+      expect(agent.activeToolIds.size).toBe(0);
+      expect(mockWebview.messages.find((m) => m.type === 'agentToolsClear')).toBeTruthy();
+      expect(
+        mockWebview.messages.find((m) => m.type === 'agentStatus' && m.status === 'waiting'),
+      ).toBeUndefined();
+    });
+
+    it('without the latch, SessionEnd(other) still ends the session', () => {
+      const onSessionEnd = vi.fn();
+      handler.setLifecycleCallbacks({ onSessionEnd });
+      agents.set(1, createTestAgent({ id: 1, sessionId: 'sess-1' }));
+      handler.registerAgent('sess-1', 1);
+      handler.handleEvent('claude', {
+        hook_event_name: 'SessionEnd',
+        session_id: 'sess-1',
+        reason: 'other',
+      });
+      expect(onSessionEnd).toHaveBeenCalledWith(1, 'other');
+    });
+
+    it('an auto-discovered SessionStart(resume) clears pendingClear too', () => {
+      const agent = createTestAgent({ id: 1, sessionId: 'sess-1', pendingClear: true });
+      agents.set(1, agent); // NOT registered with the router
+      handler.handleEvent('claude', {
+        hook_event_name: 'SessionStart',
+        session_id: 'sess-1',
+        source: 'resume',
+        cwd: '/test',
+      });
+      expect(agent.pendingClear).toBe(false);
+    });
+
+    it('a known-agent SessionStart(resume) clears pendingClear', () => {
+      const agent = createTestAgent({ id: 1, sessionId: 'sess-1', pendingClear: true });
+      agents.set(1, agent);
+      handler.registerAgent('sess-1', 1);
+      handler.handleEvent('claude', {
+        hook_event_name: 'SessionStart',
+        session_id: 'sess-1',
+        source: 'resume',
+        cwd: '/test',
+      });
+      expect(agent.pendingClear).toBe(false);
+      expect(agent.hookDelivered).toBe(true);
+    });
+  });
 });

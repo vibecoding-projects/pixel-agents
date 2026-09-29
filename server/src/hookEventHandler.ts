@@ -182,6 +182,8 @@ export class HookEventHandler {
         const agent = this.agents.get(existingAgentId);
         if (agent) {
           agent.hookDelivered = true;
+          // Same-id resume (a move): no reassign will follow.
+          agent.pendingClear = false;
         }
         if (debug)
           console.log(
@@ -194,6 +196,8 @@ export class HookEventHandler {
         if (agent.sessionId === event.session_id) {
           this.registerAgent(agent.sessionId, id);
           agent.hookDelivered = true;
+          // Same-id resume (a move) on an agent whose hooks were never registered.
+          agent.pendingClear = false;
           if (debug)
             console.log(
               `[Pixel Agents] Hook: Agent ${id} - SessionStart(source=${source}) auto-discovered`,
@@ -376,6 +380,17 @@ export class HookEventHandler {
       console.log(
         `[Pixel Agents] Hook: Agent ${agentId} - SessionEnd(reason=${reason ?? 'unknown'})`,
       );
+
+    // A move in progress: this SessionEnd is the OUTSIDE process going away,
+    // not the session ending. Drop tool state (no waiting chime) and keep the
+    // agent; the in-office resume re-announces itself with SessionStart.
+    if (agent.pendingHandoff) {
+      agent.pendingHandoff = false;
+      this.clearTurnTools(agent, agentId);
+      if (debug)
+        console.log(`[Pixel Agents] Hook: Agent ${agentId} - SessionEnd during move, kept`);
+      return;
+    }
 
     // /clear and /resume send SessionEnd then SessionStart. Wait briefly for the follow-up.
     // All other reasons (exit, logout, prompt_input_exit) are final -- despawn immediately.
@@ -718,7 +733,11 @@ export class HookEventHandler {
    * agents), cancels timers, and notifies the webview. Same logic as the turn_duration
    * handler in transcriptParser.ts.
    */
-  private markAgentWaiting(agent: AgentState, agentId: number, awaitingInput = false): void {
+  /** Drop the turn's live tool state: timers, foreground tools (background
+   *  spawns are re-sent), the hook-tool correlation. Shared by turn end
+   *  (markAgentWaiting) and the move handoff, which must NOT announce a
+   *  waiting status (that plays the notification chime). */
+  private clearTurnTools(agent: AgentState, agentId: number): void {
     cancelWaitingTimer(agentId, this.waitingTimers);
     cancelPermissionTimer(agentId, this.permissionTimers);
 
@@ -763,10 +782,14 @@ export class HookEventHandler {
       }
     }
 
-    agent.isWaiting = true;
     agent.permissionSent = false;
     agent.hadToolsInTurn = false;
     agent.currentHookToolId = undefined;
+  }
+
+  private markAgentWaiting(agent: AgentState, agentId: number, awaitingInput = false): void {
+    this.clearTurnTools(agent, agentId);
+    agent.isWaiting = true;
     this.agents.broadcast({
       type: 'agentStatus',
       id: agentId,
