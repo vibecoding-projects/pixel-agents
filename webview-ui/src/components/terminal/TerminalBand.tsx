@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
-  TERMINAL_BAND_DEFAULT_HEIGHT_PX,
-  TERMINAL_BAND_DEFAULT_WIDTH_PX,
   TERMINAL_BAND_HANDLE_THICKNESS_PX,
   TERMINAL_BAND_MAX_HEIGHT_PX,
   TERMINAL_BAND_MAX_WIDTH_PX,
@@ -15,7 +13,14 @@ import type { PtyEventBus } from '../../office/panel/ptyEventBus.js';
 import type { RailAgent } from './AgentRail.js';
 import { AgentRail } from './AgentRail.js';
 import type { PanelPosition } from './panelPosition.js';
-import { loadRailWidth, saveRailWidth } from './panelPosition.js';
+import {
+  loadBandHeight,
+  loadBandWidth,
+  loadRailWidth,
+  saveBandHeight,
+  saveBandWidth,
+  saveRailWidth,
+} from './panelPosition.js';
 import { TerminalPane } from './TerminalPane.js';
 
 interface TerminalBandProps {
@@ -45,10 +50,15 @@ export function TerminalBand({
   position,
 }: TerminalBandProps) {
   const isVertical = position !== 'bottom';
-  const [height, setHeight] = useState(TERMINAL_BAND_DEFAULT_HEIGHT_PX);
-  const [width, setWidth] = useState(TERMINAL_BAND_DEFAULT_WIDTH_PX);
+  // Seeded from localStorage: the band unmounts when hidden, so React state
+  // alone forgets the drag (panelPosition.ts).
+  const [height, setHeight] = useState(() => loadBandHeight());
+  const [width, setWidth] = useState(() => loadBandWidth());
   const dragRef = useRef<{ start: number; startSize: number; vertical: boolean } | null>(null);
   const rafRef = useRef<number | null>(null);
+  // Written synchronously on every pointer move (ahead of the rAF throttle)
+  // so pointer-up saves the final size, never one frame stale.
+  const sizeRef = useRef({ height, width });
 
   const onHandlePointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -72,30 +82,33 @@ export function TerminalBand({
           ? drag.start - e.clientX
           : e.clientX - drag.start
         : drag.start - e.clientY;
+      if (drag.vertical) {
+        sizeRef.current.width = Math.min(
+          TERMINAL_BAND_MAX_WIDTH_PX,
+          Math.max(TERMINAL_BAND_MIN_WIDTH_PX, drag.startSize + delta),
+        );
+      } else {
+        sizeRef.current.height = Math.min(
+          TERMINAL_BAND_MAX_HEIGHT_PX,
+          Math.max(TERMINAL_BAND_MIN_HEIGHT_PX, drag.startSize + delta),
+        );
+      }
       if (rafRef.current !== null) return; // throttle to one update per frame
       rafRef.current = requestAnimationFrame(() => {
         rafRef.current = null;
-        if (drag.vertical) {
-          setWidth(
-            Math.min(
-              TERMINAL_BAND_MAX_WIDTH_PX,
-              Math.max(TERMINAL_BAND_MIN_WIDTH_PX, drag.startSize + delta),
-            ),
-          );
-        } else {
-          setHeight(
-            Math.min(
-              TERMINAL_BAND_MAX_HEIGHT_PX,
-              Math.max(TERMINAL_BAND_MIN_HEIGHT_PX, drag.startSize + delta),
-            ),
-          );
-        }
+        if (drag.vertical) setWidth(sizeRef.current.width);
+        else setHeight(sizeRef.current.height);
       });
     },
     [position],
   );
 
   const onHandlePointerUp = useCallback(() => {
+    const drag = dragRef.current;
+    if (drag) {
+      if (drag.vertical) saveBandWidth(sizeRef.current.width);
+      else saveBandHeight(sizeRef.current.height);
+    }
     dragRef.current = null;
   }, []);
 
