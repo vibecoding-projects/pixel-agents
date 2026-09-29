@@ -236,6 +236,23 @@ describe('moveSessionHere', () => {
     expect(starts).toHaveLength(1);
   });
 
+  it('refuses a lead whose inline teammates are live, before signalling', async () => {
+    store.set(4, createTestAgent({ jsonlFile: transcript, isTeamLead: true, teamName: 't' }));
+    store.set(
+      9,
+      createTestAgent({
+        id: 9,
+        sessionId: 'sess-9',
+        jsonlFile: transcript,
+        leadAgentId: 4,
+        agentName: 'r',
+      }),
+    );
+    expect(await moveSessionHere(4, deps({ pid: 777 }))).toBe(false);
+    expect(kill).not.toHaveBeenCalled();
+    expect(sent.at(-1)).toMatchObject({ type: 'moveSessionFailed', id: 4 });
+  });
+
   it('refuses before signalling when the transcript is missing', async () => {
     store.set(4, createTestAgent({ jsonlFile: path.join(tmp, 'gone.jsonl') }));
     expect(await moveSessionHere(4, deps({ pid: 777 }))).toBe(false);
@@ -257,6 +274,11 @@ describe('moveRefusalReason', () => {
     expect(moveRefusalReason(base({}), false)).toBeTruthy();
     expect(moveRefusalReason(base({ moveInFlight: true }), true)).toBeTruthy();
   });
+  it('refuses a lead that still has inline teammates (SIGTERM would kill them too)', () => {
+    expect(moveRefusalReason(base({ isTeamLead: true }), true, true)).toBeTruthy();
+    expect(moveRefusalReason(base({ isTeamLead: true }), true, false)).toBeNull();
+  });
+
   it('refuses teammates and sub-agent spawns', () => {
     expect(moveRefusalReason(base({ leadAgentId: 1 }), true)).toBeTruthy();
     expect(moveRefusalReason(base({ agentName: 'researcher' }), true)).toBeTruthy();

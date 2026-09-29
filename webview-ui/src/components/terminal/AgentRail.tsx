@@ -4,7 +4,7 @@ export interface RailAgent {
   id: number;
   label: string;
   /** False for an adopted session still running outside the office. */
-  attached: boolean;
+  inOffice: boolean;
   moveState: 'idle' | 'pending' | 'error';
   moveError?: string;
 }
@@ -20,7 +20,7 @@ interface AgentRailProps {
   width: number;
 }
 
-/** Vertical list of agents on the left edge of the terminal band: attached
+/** Vertical list of agents on the left edge of the terminal band: in-office
  *  (pty-backed) ones and adopted sessions still running outside the office,
  *  which render muted with an "outside" marker. Click focuses that agent's
  *  terminal (or moves an outside session in); ✎ renames inline; ✕ closes the
@@ -79,14 +79,14 @@ export function AgentRail({
               }
             }}
             className={`flex items-center gap-4 px-6 py-4 cursor-pointer border-b-2 border-border text-2xs${
-              agent.attached ? '' : ' opacity-60'
+              agent.inOffice ? '' : ' opacity-60'
             }`}
             style={{
               background: focused ? 'var(--color-active-bg)' : 'transparent',
               color: focused ? 'var(--color-text)' : 'var(--color-text-muted)',
             }}
           >
-            {!agent.attached && (
+            {!agent.inOffice && (
               <span
                 className="text-2xs text-text-muted"
                 title={

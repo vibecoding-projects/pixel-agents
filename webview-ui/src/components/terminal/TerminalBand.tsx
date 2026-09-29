@@ -208,7 +208,7 @@ export function TerminalBand({
         aria-label="Resize agent rail"
       />
       {focused ? (
-        focused.attached ? (
+        focused.inOffice ? (
           <TerminalPane
             agentId={focused.id}
             agentName={focused.label}

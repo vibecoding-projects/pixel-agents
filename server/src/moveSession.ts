@@ -22,6 +22,7 @@ import {
   PTY_SCROLLBACK_MAX_LINES,
 } from './constants.js';
 import { CLAUDE_TERMINAL_NAME_PREFIX } from './providers/hook/claude/constants.js';
+import { hasInlineTeammates } from './teamUtils.js';
 import type { AgentState } from './types.js';
 
 export interface MoveSessionDeps {
@@ -43,12 +44,18 @@ export interface MoveSessionDeps {
 export function moveRefusalReason(
   agent: AgentState | undefined,
   hasTranscript: boolean,
+  hasLiveInlineTeammates = false,
 ): string | null {
   if (!agent) return 'Unknown agent.';
   if (agent.moveInFlight) return 'A move is already in progress.';
   if (agent.ptyBacked || !agent.isExternal) return 'This agent already runs in the office.';
   if (agent.leadAgentId !== undefined || agent.agentName || agent.spawnToolUseId) {
     return 'Teammates and sub-agents run inside their lead and cannot be moved.';
+  }
+  if (agent.isTeamLead && hasLiveInlineTeammates) {
+    // Inline teammates run inside the lead's process: stopping it kills them
+    // and the resumed session does not bring them back.
+    return 'This lead still has teammates running inside it; wait for them to finish.';
   }
   if (!agent.sessionId) return 'This agent has no session id to resume.';
   if (!hasTranscript) return 'The session transcript is gone; nothing to resume.';
@@ -106,7 +113,7 @@ export async function moveSessionHere(id: number, deps: MoveSessionDeps): Promis
 
   const agent = store.get(id);
   const hasTranscript = !!agent?.jsonlFile && fs.existsSync(agent.jsonlFile);
-  const refusal = moveRefusalReason(agent, hasTranscript);
+  const refusal = moveRefusalReason(agent, hasTranscript, hasInlineTeammates(id, store));
   if (refusal || !agent) return fail(refusal ?? 'Unknown agent.');
   const ptyHost = runtime.ptyHost;
   if (!ptyHost) return fail('No terminal host (not running standalone?).');

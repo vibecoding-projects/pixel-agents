@@ -383,3 +383,9 @@ export const NAMEPLATE_TEXT_OUTLINE = '0 0 2px #000, 0 0 4px rgba(0, 0, 0, 0.8)'
 export const SUBAGENT_LINK_DASH = [2, 2];
 export const SUBAGENT_LINK_WIDTH_PX = 1;
 export const SUBAGENT_LINK_COLOR = '#6b7280';
+
+/** A moveSessionHere request with no sessionMoved/moveSessionFailed answer
+ *  after this long (a reconnect during the kill window, a silent server drop)
+ *  is shown as failed so the placeholder never sticks at "Moving…". Must
+ *  exceed the server's terminate + kill windows (5 s + 2 s) plus slop. */
+export const MOVE_PENDING_TIMEOUT_MS = 15_000;

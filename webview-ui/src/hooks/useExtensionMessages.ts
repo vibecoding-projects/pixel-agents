@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { HooksConsentRequest } from '../../../core/src/messages.js';
+import { MOVE_PENDING_TIMEOUT_MS } from '../constants.js';
 import { playDoneSound, playPermissionSound, setSoundEnabled } from '../notificationSound.js';
 import type { ExistingAgentMeta, PendingAgent } from '../office/engine/existingAgents.js';
 import { reconcileExistingAgents } from '../office/engine/existingAgents.js';
@@ -210,6 +211,15 @@ export function useExtensionMessages(
   const [movePending, setMovePending] = useState<Record<number, boolean>>({});
   /** Last moveSessionFailed reason per agent, until the next attempt. */
   const [moveErrors, setMoveErrors] = useState<Record<number, string>>({});
+  /** Per-agent fallback timers: a move with no answer flips to an error. */
+  const moveTimersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+  const clearMoveTimer = useCallback((id: number) => {
+    const t = moveTimersRef.current.get(id);
+    if (t !== undefined) {
+      clearTimeout(t);
+      moveTimersRef.current.delete(id);
+    }
+  }, []);
   const [customTitles, setCustomTitles] = useState<Record<number, string>>({});
   const [terminalNames, setTerminalNames] = useState<Record<number, string>>({});
   // Per-agent pty event fan-out for xterm panes. A ref (not state): subscribers
@@ -433,6 +443,7 @@ export function useExtensionMessages(
           return next;
         });
         ptyEventBus.remove(id);
+        clearMoveTimer(id);
         setTeammateIds((prev) => without(prev, id));
         setMovePending((prev) => without(prev, id));
         setMoveErrors((prev) => without(prev, id));
@@ -482,6 +493,12 @@ export function useExtensionMessages(
         if (Object.keys(teammateAgents).length > 0) {
           setTeammateIds((prev) => ({ ...prev, ...teammateAgents }));
         }
+        // A (re)connect resync: any move answer sent point-to-point to the old
+        // socket is gone, so drop pending/error state rather than stick.
+        for (const t of moveTimersRef.current.values()) clearTimeout(t);
+        moveTimersRef.current.clear();
+        setMovePending({});
+        setMoveErrors({});
         const headlessAgents: Record<number, boolean> = {};
         for (const id of incoming) {
           noteFolderName(folderNames[id]);
@@ -877,6 +894,7 @@ export function useExtensionMessages(
         }
       } else if (msg.type === 'sessionMoved') {
         const id = msg.id as number;
+        clearMoveTimer(id);
         setPtyBackedByAgent((prev) => ({ ...prev, [id]: true }));
         if (typeof msg.terminalName === 'string' && msg.terminalName) {
           const terminalName = msg.terminalName as string;
@@ -886,6 +904,7 @@ export function useExtensionMessages(
         setMoveErrors((prev) => without(prev, id));
       } else if (msg.type === 'moveSessionFailed') {
         const id = msg.id as number;
+        clearMoveTimer(id);
         const reason = String(msg.reason ?? 'Move failed.');
         setMovePending((prev) => without(prev, id));
         setMoveErrors((prev) => ({ ...prev, [id]: reason }));
@@ -1028,9 +1047,24 @@ export function useExtensionMessages(
     teammateIds,
     movePending,
     moveErrors,
-    markMovePending: useCallback((id: number) => {
-      setMovePending((prev) => ({ ...prev, [id]: true }));
-      setMoveErrors((prev) => without(prev, id));
-    }, []),
+    markMovePending: useCallback(
+      (id: number) => {
+        setMovePending((prev) => ({ ...prev, [id]: true }));
+        setMoveErrors((prev) => without(prev, id));
+        clearMoveTimer(id);
+        moveTimersRef.current.set(
+          id,
+          setTimeout(() => {
+            moveTimersRef.current.delete(id);
+            setMovePending((prev) => {
+              if (!prev[id]) return prev;
+              setMoveErrors((errs) => ({ ...errs, [id]: 'No answer from the server.' }));
+              return without(prev, id);
+            });
+          }, MOVE_PENDING_TIMEOUT_MS),
+        );
+      },
+      [clearMoveTimer],
+    ),
   };
 }

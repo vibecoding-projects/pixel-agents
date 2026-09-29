@@ -151,7 +151,7 @@ function App() {
       setIsNewAgentOpen(true);
     }
   }, [launchAgentFailure]);
-  // Every top-level agent: attached (pty-backed) ones AND adopted sessions
+  // Every top-level agent: in-office (pty-backed) ones AND adopted sessions
   // still running outside the office. Teammates stay out (clicking one
   // reaches its lead); sub-agents are never in `agents`.
   const railAgents = useMemo(
@@ -166,7 +166,7 @@ function App() {
             terminalName: terminalNames[id],
             id,
           }),
-          attached: ptyBackedByAgent[id] === true,
+          inOffice: ptyBackedByAgent[id] === true,
           moveState: movePending[id] ? 'pending' : moveErrors[id] ? 'error' : 'idle',
           moveError: moveErrors[id],
         })),
@@ -188,7 +188,7 @@ function App() {
     const prev = prevRailIdsRef.current;
     // Only ATTACHED entries count: a scanner adoption landing during a pending
     // spawn must not steal the auto-open onto a placeholder.
-    const fresh = railAgents.filter((a) => a.attached && !prev.has(a.id));
+    const fresh = railAgents.filter((a) => a.inOffice && !prev.has(a.id));
     prevRailIdsRef.current = new Set(railAgents.map((a) => a.id));
     if (pendingSpawnOpenRef.current && fresh.length > 0) {
       pendingSpawnOpenRef.current = false;
@@ -373,7 +373,7 @@ function App() {
   const handleRailFocus = useCallback(
     (id: number) => {
       setFocusedTerminalId(id);
-      requestMove(id); // no-op for attached agents
+      requestMove(id); // no-op for inOffice agents
     },
     [requestMove],
   );
