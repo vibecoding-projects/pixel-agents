@@ -14,6 +14,7 @@ export interface SeatLike {
 
 export interface AnchorLike {
   seatId: string | null;
+  preferredSeatId?: string | null;
   tileCol: number;
   tileRow: number;
 }
@@ -31,24 +32,24 @@ export function anchorTile(
   seats: ReadonlyMap<string, SeatLike>,
 ): { col: number; row: number } | undefined {
   if (!anchor) return undefined;
-  const seat = anchor.seatId ? seats.get(anchor.seatId) : undefined;
+  const uid = anchor.seatId ?? anchor.preferredSeatId ?? null;
+  const seat = uid ? seats.get(uid) : undefined;
   return seat
     ? { col: seat.seatCol, row: seat.seatRow }
     : { col: anchor.tileCol, row: anchor.tileRow };
 }
 
-/** Manhattan-nearest free seat to a tile, optionally restricted to work seats. */
-function nearestFree(
+/** Nearest free seat matching `keep`, by Manhattan distance from the tile. */
+function nearestFreeWhere(
   seats: ReadonlyMap<string, SeatLike>,
   col: number,
   row: number,
-  workOnly: boolean,
+  keep: (uid: string, seat: SeatLike) => boolean,
 ): string | null {
   let best: string | null = null;
   let bestDist = Infinity;
   for (const [uid, seat] of seats) {
-    if (seat.assigned) continue;
-    if (workOnly && seat.role !== 'work') continue;
+    if (seat.assigned || !keep(uid, seat)) continue;
     const d = Math.abs(seat.seatCol - col) + Math.abs(seat.seatRow - row);
     if (d < bestDist) {
       best = uid;
@@ -62,12 +63,67 @@ function nearestFree(
  * Free seat closest (Manhattan) to a tile — seats teammates beside their
  * lead. Prefers work seats; only considers rest seats when no work seat is
  * free, so a teammate is never clustered onto a couch just because it's
- * nearer than the closest free desk.
+ * nearer than the closest free desk. `exclude` is a uid never returned: the
+ * lead's own (possibly released) chair must not be handed to a teammate.
  */
 export function closestFreeSeat(
   seats: ReadonlyMap<string, SeatLike>,
   col: number,
   row: number,
+  exclude?: string | null,
 ): string | null {
-  return nearestFree(seats, col, row, true) ?? nearestFree(seats, col, row, false);
+  const notExcluded = (uid: string) => uid !== exclude;
+  return (
+    nearestFreeWhere(seats, col, row, (uid, s) => s.role === 'work' && notExcluded(uid)) ??
+    nearestFreeWhere(seats, col, row, (uid) => notExcluded(uid))
+  );
+}
+
+export interface ClaimLike {
+  tileCol: number;
+  tileRow: number;
+  preferredSeatId: string | null;
+}
+
+/**
+ * The seat a character claims when it needs one: its preferred seat when that
+ * is a free work seat; else the nearest free work seat inside one of its
+ * folder's areas, then the nearest unzoned one, then any; else the nearest
+ * free rest seat (the office is oversubscribed — working on the sofa beats
+ * standing); else null. Mirrors findFreeSeat's area stages with proximity in
+ * place of random choice. `exclude` drops candidates the caller found
+ * unreachable so the retry never hands back the same seat.
+ */
+export function claimWorkSeat(
+  ch: ClaimLike,
+  seats: ReadonlyMap<string, SeatLike>,
+  zoneOf: (uid: string) => string | null,
+  areaLabels?: string[],
+  exclude?: ReadonlySet<string>,
+): string | null {
+  const ok = (uid: string, s: SeatLike) => !s.assigned && !exclude?.has(uid);
+  if (ch.preferredSeatId) {
+    const pref = seats.get(ch.preferredSeatId);
+    if (pref && pref.role === 'work' && ok(ch.preferredSeatId, pref)) return ch.preferredSeatId;
+  }
+  const { tileCol: col, tileRow: row } = ch;
+  if (areaLabels && areaLabels.length > 0) {
+    const wanted = new Set(areaLabels);
+    const inArea = nearestFreeWhere(seats, col, row, (uid, s) => {
+      if (s.role !== 'work' || !ok(uid, s)) return false;
+      const z = zoneOf(uid);
+      return z !== null && wanted.has(z);
+    });
+    if (inArea) return inArea;
+  }
+  return (
+    nearestFreeWhere(
+      seats,
+      col,
+      row,
+      (uid, s) => s.role === 'work' && ok(uid, s) && zoneOf(uid) === null,
+    ) ??
+    nearestFreeWhere(seats, col, row, (uid, s) => s.role === 'work' && ok(uid, s)) ??
+    nearestFreeWhere(seats, col, row, (uid, s) => s.role === 'rest' && ok(uid, s))
+  );
 }

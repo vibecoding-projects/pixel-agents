@@ -200,8 +200,17 @@ export interface Character {
   wanderLimit: number;
   /** Whether the agent is actively working */
   isActive: boolean;
-  /** Assigned seat uid, or null if no seat */
+  /** Currently CLAIMED seat uid (work seat, or a rest seat when the office
+   *  is oversubscribed), or null. Claimed when the character needs a seat,
+   *  released when it walks away. */
   seatId: string | null;
+  /** The seat the user assigned (or the spawn seat). Persisted as `seatId` in
+   *  saveAgentSeats. Never blocks anything by itself — `seatId` is the CLAIM. */
+  preferredSeatId: string | null;
+  /** Wants a work seat and none is free: standing by a desk until one frees. */
+  seatWait: boolean;
+  /** Where to stand while waiting, facing the desk it waits for. */
+  seatWaitTarget: { col: number; row: number; facing: Direction } | null;
   /** Transient rest-seat (couch) uid the character currently occupies or is
    *  walking to. Never persisted; cleared whenever the character leaves the
    *  rest seat or becomes seated (active or awaiting user). */

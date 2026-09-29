@@ -80,6 +80,9 @@ export function createCharacter(
     // the user hasn't touched yet.
     isActive: false,
     seatId,
+    preferredSeatId: seatId,
+    seatWait: false,
+    seatWaitTarget: null,
     restSeatId: null,
     bubbleType: null,
     bubbleTimer: 0,
@@ -115,6 +118,15 @@ export function isChairTile(col: number, row: number, seats: Map<string, Seat>):
     if (seat.seatCol === col && seat.seatRow === row) return true;
   }
   return false;
+}
+
+/** Free the character's claimed seat (work or fallback rest), keeping its
+ *  preference. No-op when nothing is claimed. */
+export function releaseWorkSeat(ch: Character, seats: Map<string, Seat>): void {
+  if (!ch.seatId) return;
+  const seat = seats.get(ch.seatId);
+  if (seat) seat.assigned = false;
+  ch.seatId = null;
 }
 
 /** Nearest free rest seat by Manhattan distance, or null. */
