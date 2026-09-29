@@ -155,17 +155,20 @@ describe('OfficeState rest-claim lifecycle', () => {
     os.rebuildFromLayout(layout);
 
     expect(ch.restSeatId).toBeNull();
-    // The kept work seat survives the rebuild (pass 1 keeps role === 'work').
-    expect(ch.seatId).toBe(workSeatId);
+    // Claims are transient: an IDLE agent keeps its PREFERENCE, not the chair.
+    expect(ch.preferredSeatId).toBe(workSeatId);
+    expect(ch.seatId).toBeNull();
+    expect(os.seats.get(workSeatId)!.assigned).toBe(false);
     expect(os.seats.get('couch-1')!.assigned).toBe(false);
   });
 
-  it('rebuildFromLayout reseats an agent whose kept chair demoted to rest', () => {
+  it('rebuildFromLayout re-claims for an ACTIVE agent whose preferred chair demoted to rest', () => {
     const initial = layoutWithWorkAndRestSeats();
     const os = new OfficeState(initial);
     os.addAgent(1);
     const ch = os.characters.get(1)!;
     expect(ch.seatId).toBe('chair-1');
+    os.setAgentActive(1, true);
 
     // Rebuild: monitor removed (chair-1 demotes to rest) + a NEW work seat
     // (chair-2, facing its own monitored desk) added elsewhere.
@@ -182,7 +185,42 @@ describe('OfficeState rest-claim lifecycle', () => {
     expect(os.seats.get('chair-1')!.role).toBe('rest');
     expect(os.seats.get('chair-2')!.role).toBe('work');
     expect(ch.seatId).toBe('chair-2');
+    expect(ch.preferredSeatId).toBeNull(); // the old preference is no longer a work seat
     expect(os.seats.get('chair-1')!.assigned).toBe(false);
+  });
+
+  it('rebuildFromLayout drops the preference of an IDLE agent whose chair disappeared and leaves it standing', () => {
+    const initial = layoutWithWorkAndRestSeats();
+    const os = new OfficeState(initial);
+    os.addAgent(1);
+    const ch = os.characters.get(1)!;
+    expect(ch.preferredSeatId).toBe('chair-1');
+
+    const rebuilt = layoutWithWorkAndRestSeats();
+    rebuilt.furniture = rebuilt.furniture.filter((f) => f.uid !== 'chair-1');
+    os.rebuildFromLayout(rebuilt);
+
+    expect(ch.seatId).toBeNull();
+    expect(ch.preferredSeatId).toBeNull();
+    expect(os.walkableTiles.some((t) => t.col === ch.tileCol && t.row === ch.tileRow)).toBe(true);
+  });
+
+  it('rebuildFromLayout re-claims for agents that should be seated and snaps them to the seat', () => {
+    const layout = layoutWithWorkAndRestSeats();
+    const os = new OfficeState(layout);
+    os.addAgent(1);
+    const ch = os.characters.get(1)!;
+    os.setAgentActive(1, true);
+    ch.tileCol = 0;
+    ch.tileRow = 0;
+
+    os.rebuildFromLayout(layout);
+
+    expect(ch.seatId).toBe('chair-1');
+    const seat = os.seats.get('chair-1')!;
+    expect(seat.assigned).toBe(true);
+    expect(ch.tileCol).toBe(seat.seatCol);
+    expect(ch.tileRow).toBe(seat.seatRow);
   });
 
   it('setAwaitingSince stores and clears the latch', () => {

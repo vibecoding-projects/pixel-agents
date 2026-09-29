@@ -39,7 +39,7 @@ import type {
   TileType as TileTypeVal,
 } from '../types.js';
 import { CharacterState, Direction, PetState, TILE_SIZE } from '../types.js';
-import { createCharacter, shouldBeSeated, updateCharacter } from './characters.js';
+import { createCharacter, releaseWorkSeat, shouldBeSeated, updateCharacter } from './characters.js';
 import { advanceMatrixEffect, startMatrixEffect } from './matrixEffectState.js';
 import { createPet, updatePet } from './petEntity.js';
 import { anchorTile, claimWorkSeat, closestFreeSeat } from './seatPlacement.js';
@@ -149,47 +149,31 @@ export class OfficeState {
       seat.assigned = false;
     }
 
-    // Rest seats never persist across rebuilds — the seats themselves were
-    // already unassigned above (a fresh map from layoutToSeats), so clearing
-    // the character-side claim here needs no matching seat free.
+    // Every claim is transient; rebuild them from preferences. Preferences
+    // that no longer name a WORK seat are dropped.
+    const now = Date.now();
     for (const ch of this.characters.values()) {
       ch.restSeatId = null;
+      ch.seatId = null;
+      ch.seatWait = false;
+      ch.seatWaitTarget = null;
+      const pref = ch.preferredSeatId ? this.seats.get(ch.preferredSeatId) : undefined;
+      if (!pref || pref.role !== 'work') ch.preferredSeatId = null;
     }
-
-    // First pass: try to keep characters at their existing seats
     for (const ch of this.characters.values()) {
-      if (ch.seatId && this.seats.has(ch.seatId)) {
-        const seat = this.seats.get(ch.seatId)!;
-        if (!seat.assigned && seat.role === 'work') {
-          seat.assigned = true;
-          // Snap character to seat position
-          ch.tileCol = seat.seatCol;
-          ch.tileRow = seat.seatRow;
-          const cx = seat.seatCol * TILE_SIZE + TILE_SIZE / 2;
-          const cy = seat.seatRow * TILE_SIZE + TILE_SIZE / 2;
-          ch.x = cx;
-          ch.y = cy;
-          ch.dir = seat.facingDir;
-          continue;
-        }
-      }
-      ch.seatId = null; // will be reassigned below
-    }
-
-    // Second pass: assign remaining characters to free seats
-    for (const ch of this.characters.values()) {
-      if (ch.seatId) continue;
-      const seatId = this.findFreeSeat(ch.folderName);
-      if (seatId) {
-        this.seats.get(seatId)!.assigned = true;
-        ch.seatId = seatId;
-        const seat = this.seats.get(seatId)!;
-        ch.tileCol = seat.seatCol;
-        ch.tileRow = seat.seatRow;
-        ch.x = seat.seatCol * TILE_SIZE + TILE_SIZE / 2;
-        ch.y = seat.seatRow * TILE_SIZE + TILE_SIZE / 2;
-        ch.dir = seat.facingDir;
-      }
+      if (ch.isSubagent || !shouldBeSeated(ch, now)) continue;
+      const areaLabels = ch.folderName ? this.areaMappings[ch.folderName] : undefined;
+      const uid = claimWorkSeat(ch, this.seats, (u) => this.seatZone(u), areaLabels);
+      if (!uid) continue;
+      const seat = this.seats.get(uid)!;
+      seat.assigned = true;
+      ch.seatId = uid;
+      // Snap to the seat, as the old first pass did.
+      ch.tileCol = seat.seatCol;
+      ch.tileRow = seat.seatRow;
+      ch.x = seat.seatCol * TILE_SIZE + TILE_SIZE / 2;
+      ch.y = seat.seatRow * TILE_SIZE + TILE_SIZE / 2;
+      ch.dir = seat.facingDir;
     }
 
     // Relocate any characters that ended up outside bounds or on non-walkable tiles
@@ -501,16 +485,26 @@ export class OfficeState {
     const anchor = nearAgentId !== undefined ? this.characters.get(nearAgentId) : undefined;
     const anchorAt = anchorTile(anchor, this.seats);
     let seatId: string | null = null;
+    // A preferred WORK seat that is currently taken (a restore whose chair
+    // someone else claimed) stays the preference: the agent spawns standing
+    // beside it instead of being handed a different chair for life.
+    let keepTakenPreference: Seat | null = null;
     if (preferredSeatId && this.seats.has(preferredSeatId)) {
       const seat = this.seats.get(preferredSeatId)!;
-      if (!seat.assigned && seat.role === 'work') {
-        seatId = preferredSeatId;
+      if (seat.role === 'work') {
+        if (!seat.assigned) seatId = preferredSeatId;
+        else keepTakenPreference = seat;
       }
     }
-    if (!seatId && anchorAt) {
-      seatId = closestFreeSeat(this.seats, anchorAt.col, anchorAt.row);
+    if (!seatId && !keepTakenPreference && anchorAt) {
+      seatId = closestFreeSeat(
+        this.seats,
+        anchorAt.col,
+        anchorAt.row,
+        anchor?.seatId ?? anchor?.preferredSeatId,
+      );
     }
-    if (!seatId) {
+    if (!seatId && !keepTakenPreference) {
       seatId = this.findFreeSeat(folderName);
     }
 
@@ -520,8 +514,12 @@ export class OfficeState {
       seat.assigned = true;
       ch = createCharacter(id, palette, seatId, seat, hueShift);
     } else {
-      // No seats — teammates spawn beside their anchor, others at a random walkable tile
-      let spawn = anchorAt ? this.closestFreeWalkableTile(anchorAt.col, anchorAt.row) : null;
+      // No seat to claim — stand beside the preferred chair when there is one,
+      // beside the anchor for teammates, else at a random walkable tile.
+      const near = keepTakenPreference
+        ? { col: keepTakenPreference.seatCol, row: keepTakenPreference.seatRow }
+        : anchorAt;
+      let spawn = near ? this.closestFreeWalkableTile(near.col, near.row) : null;
       if (!spawn) {
         spawn =
           this.walkableTiles.length > 0
@@ -529,6 +527,9 @@ export class OfficeState {
             : { col: 1, row: 1 };
       }
       ch = createCharacter(id, palette, null, null, hueShift);
+      // createCharacter starts in TYPE; an agent never types without a seat.
+      ch.state = CharacterState.IDLE;
+      if (keepTakenPreference) ch.preferredSeatId = preferredSeatId ?? null;
       ch.x = spawn.col * TILE_SIZE + TILE_SIZE / 2;
       ch.y = spawn.row * TILE_SIZE + TILE_SIZE / 2;
       ch.tileCol = spawn.col;
@@ -605,10 +606,9 @@ export class OfficeState {
     if (!ch) return;
     if (ch.matrixEffect === 'despawn') return; // already despawning
     // Free seat and clear selection immediately
-    if (ch.seatId) {
-      const seat = this.seats.get(ch.seatId);
-      if (seat) seat.assigned = false;
-    }
+    releaseWorkSeat(ch, this.seats);
+    ch.seatWait = false;
+    ch.seatWaitTarget = null;
     if (ch.restSeatId) {
       const rest = this.seats.get(ch.restSeatId);
       if (rest) rest.assigned = false;
@@ -638,26 +638,38 @@ export class OfficeState {
     const seat = this.seats.get(seatId);
     if (!seat || seat.assigned) return;
     if (seat.role !== 'work') return; // rest seats are not user-assignable
-    // Unassign old seat
-    if (ch.seatId) {
-      const old = this.seats.get(ch.seatId);
-      if (old) old.assigned = false;
-    }
-    // Assign new seat
+    // Release the old claim; the new seat becomes both claim and preference.
+    releaseWorkSeat(ch, this.seats);
     seat.assigned = true;
     ch.seatId = seatId;
-    // Pathfind to new seat (unblock own seat tile for this query)
-    const path = this.withOwnSeatUnblocked(ch, () =>
-      findPath(ch.tileCol, ch.tileRow, seat.seatCol, seat.seatRow, this.tileMap, this.blockedTiles),
-    );
+    ch.preferredSeatId = seatId;
+    this.walkToClaimedSeat(ch, seat);
+  }
+
+  /** Walk a character to the seat it just claimed, or sit it down when it is
+   *  already there. An unreachable seat is released again (the preference is
+   *  kept) and the character stays IDLE — never TYPE away from a seat. */
+  private walkToClaimedSeat(ch: Character, seat: Seat): void {
+    const atSeat = ch.tileCol === seat.seatCol && ch.tileRow === seat.seatRow;
+    const path = atSeat
+      ? []
+      : this.withOwnSeatUnblocked(ch, () =>
+          findPath(
+            ch.tileCol,
+            ch.tileRow,
+            seat.seatCol,
+            seat.seatRow,
+            this.tileMap,
+            this.blockedTiles,
+          ),
+        );
     if (path.length > 0) {
       ch.path = path;
       ch.moveProgress = 0;
       ch.state = CharacterState.WALK;
       ch.frame = 0;
       ch.frameTimer = 0;
-    } else {
-      // Already at seat or no path — sit down
+    } else if (atSeat) {
       ch.state = CharacterState.TYPE;
       ch.dir = seat.facingDir;
       ch.frame = 0;
@@ -665,6 +677,9 @@ export class OfficeState {
       if (!ch.isActive) {
         ch.seatTimer = INACTIVE_SEAT_TIMER_MIN_SEC + Math.random() * INACTIVE_SEAT_TIMER_RANGE_SEC;
       }
+    } else {
+      releaseWorkSeat(ch, this.seats);
+      ch.state = CharacterState.IDLE;
     }
   }
 
@@ -682,12 +697,18 @@ export class OfficeState {
     if (!teammate || !lead) return;
     const anchorAt = anchorTile(lead, this.seats);
     if (!anchorAt) return;
-    const target = closestFreeSeat(this.seats, anchorAt.col, anchorAt.row);
-    if (!target || target === teammate.seatId) return;
+    const target = closestFreeSeat(
+      this.seats,
+      anchorAt.col,
+      anchorAt.row,
+      lead.seatId ?? lead.preferredSeatId,
+    );
+    const current = teammate.seatId ?? teammate.preferredSeatId;
+    if (!target || target === current) return;
     const targetSeat = this.seats.get(target)!;
     const targetDist =
       Math.abs(targetSeat.seatCol - anchorAt.col) + Math.abs(targetSeat.seatRow - anchorAt.row);
-    const currentSeat = teammate.seatId ? this.seats.get(teammate.seatId) : undefined;
+    const currentSeat = current ? this.seats.get(current) : undefined;
     const currentDist = currentSeat
       ? Math.abs(currentSeat.seatCol - anchorAt.col) + Math.abs(currentSeat.seatRow - anchorAt.row)
       : Infinity;
@@ -699,28 +720,17 @@ export class OfficeState {
   /** Send an agent back to their currently assigned seat */
   sendToSeat(agentId: number): void {
     const ch = this.characters.get(agentId);
-    if (!ch || !ch.seatId) return;
-    const seat = this.seats.get(ch.seatId);
-    if (!seat) return;
-    const path = this.withOwnSeatUnblocked(ch, () =>
-      findPath(ch.tileCol, ch.tileRow, seat.seatCol, seat.seatRow, this.tileMap, this.blockedTiles),
-    );
-    if (path.length > 0) {
-      ch.path = path;
-      ch.moveProgress = 0;
-      ch.state = CharacterState.WALK;
-      ch.frame = 0;
-      ch.frameTimer = 0;
-    } else {
-      // Already at seat — sit down
-      ch.state = CharacterState.TYPE;
-      ch.dir = seat.facingDir;
-      ch.frame = 0;
-      ch.frameTimer = 0;
-      if (!ch.isActive) {
-        ch.seatTimer = INACTIVE_SEAT_TIMER_MIN_SEC + Math.random() * INACTIVE_SEAT_TIMER_RANGE_SEC;
-      }
+    if (!ch || ch.isSubagent) return;
+    if (!ch.seatId) {
+      // Unclaimed: take the preferred seat if it is free, else nothing to go to.
+      const pref = ch.preferredSeatId ? this.seats.get(ch.preferredSeatId) : undefined;
+      if (!pref || pref.assigned || pref.role !== 'work') return;
+      pref.assigned = true;
+      ch.seatId = ch.preferredSeatId;
     }
+    const seat = this.seats.get(ch.seatId!);
+    if (!seat) return;
+    this.walkToClaimedSeat(ch, seat);
   }
 
   /** Walk an agent to an arbitrary walkable tile (right-click command) */
@@ -1294,7 +1304,11 @@ export class OfficeState {
     const seats: Record<number, { palette: number; hueShift: number; seatId: string | null }> = {};
     for (const ch of this.characters.values()) {
       if (ch.isSubagent) continue;
-      seats[ch.id] = { palette: ch.palette, hueShift: ch.hueShift, seatId: ch.seatId };
+      seats[ch.id] = {
+        palette: ch.palette,
+        hueShift: ch.hueShift,
+        seatId: ch.preferredSeatId ?? ch.seatId,
+      };
     }
     return seats;
   }

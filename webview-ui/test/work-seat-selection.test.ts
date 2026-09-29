@@ -19,7 +19,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { OfficeState } from '../src/office/engine/officeState.js';
 import { buildDynamicCatalog } from '../src/office/layout/furnitureCatalog.js';
 import type { OfficeLayout, PlacedFurniture } from '../src/office/types.js';
-import { TileType } from '../src/office/types.js';
+import { CharacterState, TileType } from '../src/office/types.js';
 
 /** Install a minimal in-memory catalog: a desk-facing chair + monitor (work
  *  seat when paired) and a couch (always rest, per its own orientation). */
@@ -115,6 +115,20 @@ function layoutWithOnlyRestSeats(): OfficeLayout {
   return layout;
 }
 
+/** Two work seats (chair-1 at (5,5), chair-2 at (8,5)), no rest seats. */
+function layoutWithTwoWorkSeats(): OfficeLayout {
+  const layout = floorLayout();
+  layout.furniture = [
+    { uid: 'chair-1', type: 'CHAIR_FRONT', col: 5, row: 5 },
+    { uid: 'desk-1', type: 'DESK', col: 5, row: 6 },
+    { uid: 'monitor-1', type: 'MONITOR', col: 5, row: 6 },
+    { uid: 'chair-2', type: 'CHAIR_FRONT', col: 8, row: 5 },
+    { uid: 'desk-2', type: 'DESK', col: 8, row: 6 },
+    { uid: 'monitor-2', type: 'MONITOR', col: 8, row: 6 },
+  ];
+  return layout;
+}
+
 describe('work-seat selection', () => {
   beforeEach(() => {
     installTestCatalog();
@@ -146,6 +160,56 @@ describe('work-seat selection', () => {
 
     os.addAgent(4);
     expect(os.characters.get(4)!.seatId).toBeNull();
+    expect(os.characters.get(4)!.preferredSeatId).toBeNull();
+  });
+
+  it('reassignSeat records the preference and claims the target', () => {
+    const os = new OfficeState(layoutWithTwoWorkSeats());
+    os.addAgent(1);
+    const ch = os.characters.get(1)!;
+    const target = [...os.seats.entries()].find(
+      ([uid, s]) => s.role === 'work' && uid !== ch.seatId,
+    )!;
+    os.reassignSeat(1, target[0]);
+    expect(ch.preferredSeatId).toBe(target[0]);
+    expect(ch.seatId).toBe(target[0]);
+    expect(os.seats.get(target[0])!.assigned).toBe(true);
+  });
+
+  it('getPersistableSeats persists the preferred seat even while the claim is released', () => {
+    const os = new OfficeState(layoutWithWorkAndRestSeats());
+    os.addAgent(1);
+    const ch = os.characters.get(1)!;
+    const pref = ch.preferredSeatId!;
+    os.seats.get(ch.seatId!)!.assigned = false;
+    ch.seatId = null;
+    expect(os.getPersistableSeats()[1].seatId).toBe(pref);
+  });
+
+  it('a restored agent whose preferred chair is taken keeps the preference and stands nearby', () => {
+    const os = new OfficeState(layoutWithWorkAndRestSeats());
+    os.addAgent(1); // takes the only work seat
+    const taken = os.characters.get(1)!.seatId!;
+    os.addAgent(2, undefined, undefined, taken, true);
+    const ch = os.characters.get(2)!;
+    expect(ch.preferredSeatId).toBe(taken);
+    expect(ch.seatId).toBeNull();
+    expect(ch.state).not.toBe(CharacterState.TYPE);
+    expect(os.walkableTiles.some((t) => t.col === ch.tileCol && t.row === ch.tileRow)).toBe(true);
+  });
+
+  it('sendToSeat on an unclaimed idle agent claims its preferred seat and walks there', () => {
+    const os = new OfficeState(layoutWithWorkAndRestSeats());
+    os.addAgent(1);
+    const ch = os.characters.get(1)!;
+    const pref = ch.preferredSeatId!;
+    os.seats.get(pref)!.assigned = false;
+    ch.seatId = null;
+    ch.tileCol = 0;
+    ch.tileRow = 0;
+    os.sendToSeat(1);
+    expect(ch.seatId).toBe(pref);
+    expect(os.seats.get(pref)!.assigned).toBe(true);
   });
 
   it('reassignSeat to a rest seat is a no-op', () => {
