@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { describe, expect, it } from 'vitest';
 
 import { claudeProvider } from '../src/providers/hook/claude/claude.js';
@@ -256,6 +259,51 @@ describe('claudeProvider', () => {
     });
     it('handles undefined input', () => {
       expect(claudeProvider.formatToolStatus('Read', undefined)).toBe('Reading ');
+    });
+  });
+});
+
+describe('claudeProvider launch and transcript seams', () => {
+  describe('buildLaunchCommand', () => {
+    it('uses --session-id by default and --resume when asked', () => {
+      const fresh = claudeProvider.buildLaunchCommand!('sid-1', '/tmp/x');
+      expect(fresh.command).toBe('claude');
+      expect(fresh.args).toEqual(['--session-id', 'sid-1']);
+      expect(fresh.env).toEqual({ PWD: '/tmp/x' });
+      const resumed = claudeProvider.buildLaunchCommand!('sid-1', '/tmp/x', { resume: true });
+      expect(resumed.args).toEqual(['--resume', 'sid-1']);
+      const both = claudeProvider.buildLaunchCommand!('sid-1', '/tmp/x', {
+        resume: true,
+        bypassPermissions: true,
+      });
+      expect(both.args).toEqual(['--resume', 'sid-1', '--dangerously-skip-permissions']);
+    });
+  });
+
+  describe('transcriptCwd', () => {
+    it('returns the cwd of the newest record that carries one, tolerating a partial tail', () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-cwd-'));
+      const file = path.join(dir, 's.jsonl');
+      fs.writeFileSync(
+        file,
+        [
+          JSON.stringify({ type: 'user', cwd: '/old/place' }),
+          JSON.stringify({ type: 'assistant', cwd: '/new/place' }),
+          JSON.stringify({ type: 'cost-state', totalCostUSD: 1 }),
+          '{"type":"assistant","cwd":"/truncated',
+        ].join('\n') + '\n',
+      );
+      expect(claudeProvider.transcriptCwd!(file)).toBe('/new/place');
+      fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    it('returns undefined for a missing file or one with no cwd', () => {
+      expect(claudeProvider.transcriptCwd!('/nope/missing.jsonl')).toBeUndefined();
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-cwd-'));
+      const file = path.join(dir, 's.jsonl');
+      fs.writeFileSync(file, JSON.stringify({ type: 'user' }) + '\n');
+      expect(claudeProvider.transcriptCwd!(file)).toBeUndefined();
+      fs.rmSync(dir, { recursive: true, force: true });
     });
   });
 });

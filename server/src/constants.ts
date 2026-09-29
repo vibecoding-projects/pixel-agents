@@ -117,3 +117,18 @@ export const PTY_SCROLLBACK_MAX_LINES = 2000;
 export const RECENT_AGENT_FOLDERS_MAX = 8;
 /** Max length of a user-chosen agent display name (renameAgent and the New-agent form both cap here). */
 export const AGENT_TITLE_MAX_LEN = 80;
+
+// ── Moving adopted sessions in-office ────────────────────────
+/** Max skew between a session registry's recorded process start and `ps`'s
+ *  start time for the pid to count as the same process (pid reuse guard). */
+export const LIVE_PROCESS_START_TOLERANCE_MS = 5000;
+/** Tail window read when looking for a transcript's most recent `cwd`. */
+export const TRANSCRIPT_CWD_TAIL_BYTES = 65_536;
+/** Wait for SIGTERM to land before escalating. */
+export const MOVE_TERMINATE_TIMEOUT_MS = 5000;
+/** Wait for SIGKILL to land before giving up. */
+export const MOVE_KILL_TIMEOUT_MS = 2000;
+/** Liveness poll cadence while waiting for the outside process to exit. */
+export const MOVE_POLL_INTERVAL_MS = 100;
+/** How long the handoff latch survives with no SessionEnd from the old process. */
+export const MOVE_HANDOFF_GRACE_MS = 10_000;

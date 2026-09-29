@@ -7,6 +7,7 @@ import type { AgentEvent, HookProvider } from '../../../../../core/src/provider.
 import {
   BASH_COMMAND_DISPLAY_MAX_LENGTH,
   TASK_DESCRIPTION_DISPLAY_MAX_LENGTH,
+  TRANSCRIPT_CWD_TAIL_BYTES,
 } from '../../../constants.js';
 import {
   areHooksInstalled as installerAreHooksInstalled,
@@ -21,6 +22,7 @@ import {
   CLAUDE_SMALL_CONTEXT_WINDOW,
   CLAUDE_TERMINAL_NAME_PREFIX,
 } from './constants.js';
+import { findLiveProcess } from './liveProcess.js';
 
 // ── formatToolStatus: moved from src/transcriptParser.ts ──
 
@@ -102,11 +104,47 @@ function getSessionDirs(workspacePath: string): string[] {
 function buildLaunchCommand(
   sessionId: string,
   cwd: string,
-  opts?: { bypassPermissions?: boolean },
+  opts?: { bypassPermissions?: boolean; resume?: boolean },
 ): { command: string; args: string[]; env?: Record<string, string> } {
-  const args = ['--session-id', sessionId];
+  // Claude refuses `--session-id` for an id that already has a transcript
+  // ("Session ID … is already in use"); continuing one is `--resume`.
+  const args = opts?.resume ? ['--resume', sessionId] : ['--session-id', sessionId];
   if (opts?.bypassPermissions) args.push('--dangerously-skip-permissions');
   return { command: 'claude', args, env: { PWD: cwd } };
+}
+
+/** Newest `cwd` recorded in a transcript's tail (records carry the session's
+ *  working directory). Undefined when the file is missing or has none. */
+function transcriptCwd(jsonlFile: string): string | undefined {
+  let text: string;
+  try {
+    const stat = fs.statSync(jsonlFile);
+    const start = Math.max(0, stat.size - TRANSCRIPT_CWD_TAIL_BYTES);
+    const length = stat.size - start;
+    if (length <= 0) return undefined;
+    const fd = fs.openSync(jsonlFile, 'r');
+    try {
+      const buf = Buffer.alloc(length);
+      fs.readSync(fd, buf, 0, length, start);
+      text = buf.toString('utf8');
+    } finally {
+      fs.closeSync(fd);
+    }
+    if (start > 0) text = text.slice(text.indexOf('\n') + 1);
+  } catch {
+    return undefined;
+  }
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i]) continue;
+    try {
+      const rec = JSON.parse(lines[i]) as { cwd?: unknown };
+      if (typeof rec.cwd === 'string' && rec.cwd) return rec.cwd;
+    } catch {
+      continue; // partial last line or non-JSON
+    }
+  }
+  return undefined;
 }
 
 /** Root that holds every Claude session across all workspaces. Used by the
@@ -314,6 +352,8 @@ export const claudeProvider: HookProvider = {
   getAllSessionRoots,
   sessionFilePattern: '*.jsonl',
   buildLaunchCommand,
+  findLiveProcess,
+  transcriptCwd,
 
   team: claudeTeamProvider,
 };

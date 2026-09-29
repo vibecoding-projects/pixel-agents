@@ -64,6 +64,13 @@ export type AgentEvent =
 
 // ── Hook-based Provider (CLIs with hooks APIs) ────────────────
 
+/** A CLI process found running a session outside the office. */
+export interface LiveProcess {
+  pid: number;
+  /** The process's working directory, when the CLI records it. */
+  cwd?: string;
+}
+
 export interface HookProvider {
   readonly kind: 'hook';
   readonly id: string;
@@ -129,16 +136,23 @@ export interface HookProvider {
   readonly sessionFilePattern?: string;
   /** Parse one line of a transcript file into an AgentEvent. */
   parseTranscriptLine?(line: string): AgentEvent | null;
-  /** Build CLI launch command for +Agent button. */
+  /** Build CLI launch command for +Agent button. `resume` continues an existing
+   *  session (Claude: `--resume <id>`) instead of minting one (`--session-id`). */
   buildLaunchCommand?(
     sessionId: string,
     cwd: string,
-    opts?: { bypassPermissions?: boolean },
+    opts?: { bypassPermissions?: boolean; resume?: boolean },
   ): {
     command: string;
     args: string[];
     env?: Record<string, string>;
   };
+  /** The live interactive process (if any) currently running `sessionId`
+   *  outside the office, proven well enough to signal. Null on any doubt. */
+  findLiveProcess?(sessionId: string): Promise<LiveProcess | null>;
+  /** Working directory recorded in a session's transcript, for resuming a
+   *  session whose process is gone. Undefined when unknown. */
+  transcriptCwd?(jsonlFile: string): string | undefined;
 
   // ── Optional team/subagent extension (Agent Teams on Claude; empty for single-agent CLIs) ──
 
