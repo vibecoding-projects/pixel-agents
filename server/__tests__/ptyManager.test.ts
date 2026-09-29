@@ -262,3 +262,43 @@ describe('PtyManager', () => {
     expect(mgr.has(10)).toBe(false);
   });
 });
+
+describe('PtyManager.markStopped (restored agents with no live worker)', () => {
+  it('registers a dead retained entry: has() is true, exitInfo set, no scrollback, counted as crashed', () => {
+    const { frames, broadcast } = makeBroadcast();
+    const mgr = new PtyManager({ broadcast, workerFactory: () => makeFakeWorker().worker });
+    mgr.markStopped(7, { code: 0, signal: 'SIGHUP' });
+    expect(mgr.has(7)).toBe(true);
+    expect(mgr.exitInfo(7)).toEqual({ code: 0, signal: 'SIGHUP' });
+    expect(mgr.scrollback(7)).toEqual([]);
+    expect(mgr.crashedAgentIds()).toEqual([7]);
+    expect(frames).toHaveLength(0); // nothing is broadcast: the client learns it via existingAgents
+  });
+
+  it('start() replaces a stopped entry and stop() reaps it', () => {
+    const { broadcast } = makeBroadcast();
+    const fake = makeFakeWorker();
+    const mgr = new PtyManager({ broadcast, workerFactory: () => fake.worker });
+    mgr.markStopped(7, { code: 0, signal: 'SIGHUP' });
+    mgr.start(7, START);
+    expect(mgr.exitInfo(7)).toBeUndefined();
+    expect(mgr.crashedAgentIds()).toEqual([]);
+    mgr.write(7, 'x');
+    expect(fake.writes).toEqual(['x']);
+    mgr.stop(7);
+    expect(mgr.has(7)).toBe(false);
+    mgr.markStopped(8, { code: 0, signal: 'SIGHUP' });
+    mgr.stop(8);
+    expect(mgr.has(8)).toBe(false);
+  });
+
+  it('markStopped never overrides a live worker', () => {
+    const { broadcast } = makeBroadcast();
+    const fake = makeFakeWorker();
+    const mgr = new PtyManager({ broadcast, workerFactory: () => fake.worker });
+    mgr.start(7, START);
+    mgr.markStopped(7, { code: 0, signal: 'SIGHUP' });
+    expect(mgr.exitInfo(7)).toBeUndefined();
+    expect(mgr.crashedAgentIds()).toEqual([]);
+  });
+});

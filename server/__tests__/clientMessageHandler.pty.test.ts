@@ -319,6 +319,27 @@ describe('clientMessageHandler: standalone pty dispatch', () => {
       expect(starts.at(-1)!.opts.args.at(-1)).toContain('claude --session-id sess-2');
     });
 
+    it('restart falls back to the transcript cwd, then launchCwd, when no spawnCwd is recorded', () => {
+      const { host, starts } = makeFakePtyHost();
+      const ctx = makeCtx(host);
+      const other = fs.mkdtempSync(path.join(os.tmpdir(), 'pxl-restart-cwd-'));
+      const transcript = path.join(launchCwd, 'sess-1.jsonl');
+      fs.writeFileSync(transcript, JSON.stringify({ type: 'user', cwd: other }) + '\n');
+      store.set(1, createTestAgent({ id: 1, ptyBacked: true, jsonlFile: transcript }));
+      handleClientMessage({ type: 'restartAgent', id: 1 }, send, ctx);
+      expect(starts.at(-1)!.opts.cwd).toBe(other);
+      fs.rmSync(other, { recursive: true, force: true });
+
+      const gone = path.join(launchCwd, 'sess-2.jsonl');
+      fs.writeFileSync(gone, JSON.stringify({ type: 'user', cwd: '/does/not/exist' }) + '\n');
+      store.set(
+        2,
+        createTestAgent({ id: 2, sessionId: 'sess-2', ptyBacked: true, jsonlFile: gone }),
+      );
+      handleClientMessage({ type: 'restartAgent', id: 2 }, send, ctx);
+      expect(starts.at(-1)!.opts.cwd).toBe(launchCwd);
+    });
+
     it('restart re-applies the recorded bypassPermissions flag', () => {
       const { host, starts } = makeFakePtyHost();
       const ctx = makeCtx(host);

@@ -186,6 +186,28 @@ describe('AgentStateStore', () => {
       expect(saved[0].customTitle).toBe('X');
     });
 
+    it('persist projects spawnCwd and bypassPermissions for pty agents', () => {
+      const adapter = createMockAdapter();
+      store.setAdapter(adapter);
+      store.set(
+        1,
+        createTestAgent({
+          id: 1,
+          sessionId: 'sess-1',
+          ptyBacked: true,
+          spawnCwd: '/work/here',
+          bypassPermissions: true,
+        }),
+      );
+
+      store.persist();
+
+      const saved = (adapter.saveAgents as ReturnType<typeof vi.fn>).mock
+        .calls[0][0] as PersistedAgent[];
+      expect(saved[0].spawnCwd).toBe('/work/here');
+      expect(saved[0].bypassPermissions).toBe(true);
+    });
+
     it('persist without adapter is a no-op', () => {
       store.set(1, createTestAgent({ id: 1 }));
       // Should not throw

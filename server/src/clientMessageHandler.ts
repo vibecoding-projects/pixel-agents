@@ -381,7 +381,20 @@ export function handleClientMessage(
       const id = msg.id as number;
       const agent = store.get(id);
       if (!agent?.ptyBacked || !agent.sessionId) break;
-      const cwd = agent.spawnCwd ?? ctx.launchCwd ?? os.homedir();
+      // Spawn folder → the transcript's recorded cwd (a restored agent with
+      // no persisted folder) → the CLI's launch folder.
+      const dirExists = (d: string | undefined): d is string => {
+        if (!d) return false;
+        try {
+          return fs.statSync(d).isDirectory();
+        } catch {
+          return false;
+        }
+      };
+      const cwd =
+        [agent.spawnCwd, ctx.provider.transcriptCwd?.(agent.jsonlFile), ctx.launchCwd].find(
+          dirExists,
+        ) ?? os.homedir();
       // stop() reaps the old worker synchronously, so its late exit is stale
       // (silent) and start() below installs a fresh worker for the same id.
       runtime.ptyHost.stop(id);

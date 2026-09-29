@@ -11,6 +11,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import type * as vscode from 'vscode';
 
 import type { HookProvider } from '../../core/src/provider.js';
 import type { AgentStateStore } from './agentStateStore.js';
@@ -482,7 +483,12 @@ export class AgentRuntime {
     let maxId = 0;
 
     for (const p of persisted) {
-      if (!p.isExternal) continue;
+      // A pty-backed agent's process died with the previous daemon, but its
+      // session lives on in the transcript: restore it as a STOPPED character
+      // (dead pty entry → crash glyph + Restart, which resumes). Only where a
+      // pty host exists; the VS Code adapter keeps ignoring these records.
+      const restorePty = !p.isExternal && p.ptyBacked === true && this._ptyHost !== null;
+      if (!p.isExternal && !restorePty) continue;
       // Background-spawn children (a leadAgentId but no teamName) are derived
       // state: the 1s scan re-materializes them from sidecars while their spawn
       // is live. Restoring them directly would resurrect immortal characters
@@ -502,8 +508,8 @@ export class AgentRuntime {
       const agent: AgentState = {
         id: p.id,
         sessionId: p.sessionId || path.basename(p.jsonlFile, '.jsonl'),
-        terminalRef: undefined,
-        isExternal: true,
+        terminalRef: restorePty ? ({ name: p.terminalName } as vscode.Terminal) : undefined,
+        isExternal: !restorePty,
         projectDir: p.projectDir,
         jsonlFile: p.jsonlFile,
         fileOffset: 0,
@@ -533,6 +539,10 @@ export class AgentRuntime {
         teamUsesTmux: p.teamUsesTmux,
         palette: p.palette,
         hueShift: p.hueShift,
+        ptyBacked: restorePty || undefined,
+        customTitle: p.customTitle,
+        spawnCwd: restorePty ? p.spawnCwd : undefined,
+        bypassPermissions: restorePty ? p.bypassPermissions : undefined,
       };
 
       assignPaletteIfNeeded(agent, this.store);
@@ -556,10 +566,15 @@ export class AgentRuntime {
       }
 
       this.registerAgent(agent.sessionId, agent.id);
+      if (restorePty) {
+        // SIGHUP: the terminal went away. Counted as abnormal so the pane
+        // shows Restart and the character gets the stopped glyph.
+        this._ptyHost!.markStopped(p.id, { code: 0, signal: 'SIGHUP' });
+      }
 
       if (p.id > maxId) maxId = p.id;
       console.log(
-        `[Pixel Agents] Restored external agent ${p.id} -> ${path.basename(p.jsonlFile)}`,
+        `[Pixel Agents] Restored ${restorePty ? 'stopped pty' : 'external'} agent ${p.id} -> ${path.basename(p.jsonlFile)}`,
       );
     }
 

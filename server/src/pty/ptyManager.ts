@@ -103,8 +103,20 @@ export class PtyManager {
     return this.workers.get(id)?.scrollback() ?? [];
   }
 
+  /** Live worker OR a retained dead entry (a worker that exited, or a
+   *  restored agent marked stopped) — anything terminalPaneReady can replay. */
   has(id: number): boolean {
-    return this.workers.has(id);
+    return this.workers.has(id) || this.lastExit.has(id);
+  }
+
+  /** Register a dead entry for an agent with no worker at all: a pty-backed
+   *  agent restored after a daemon restart. Its pane then replays a synthetic
+   *  exit and offers Restart, exactly like a worker that died. Never touches a
+   *  live worker; nothing is broadcast (the client learns it via
+   *  existingAgents.crashedAgentIds). */
+  markStopped(id: number, exit: { code: number; signal?: string }): void {
+    if (this.workers.get(id)?.isAlive()) return;
+    this.lastExit.set(id, exit);
   }
 
   /** The retained worker's exit, if it has ended. Undefined while alive. */
@@ -128,11 +140,12 @@ export class PtyManager {
   /** Explicit reap (close/restart): kill and delete synchronously, so the
    *  old worker's late exit is recognizably stale and stays silent. */
   stop(id: number): void {
+    // A stopped-only entry (restored agent, no worker) is reaped the same way.
+    this.lastExit.delete(id);
     const worker = this.workers.get(id);
     if (!worker) return;
     worker.kill();
     this.workers.delete(id);
-    this.lastExit.delete(id);
   }
 
   disposeAll(): void {

@@ -175,6 +175,8 @@ export class AgentStateStore {
         hueShift: agent.hueShift,
         ptyBacked: agent.ptyBacked || undefined,
         customTitle: agent.customTitle,
+        spawnCwd: agent.spawnCwd,
+        bypassPermissions: agent.bypassPermissions || undefined,
       });
     }
     this.adapter.saveAgents(persisted);

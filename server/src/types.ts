@@ -138,4 +138,8 @@ export interface PersistedAgent {
   ptyBacked?: boolean;
   /** User-chosen display name (New-agent form or /rename). */
   customTitle?: string;
+  /** Folder the pty was spawned in — Restart after a daemon restart reuses it. */
+  spawnCwd?: string;
+  /** Whether the pty ran with --dangerously-skip-permissions; Restart re-applies it. */
+  bypassPermissions?: boolean;
 }
