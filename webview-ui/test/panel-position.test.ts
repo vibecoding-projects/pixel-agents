@@ -10,14 +10,24 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  loadBandHeight,
+  loadBandWidth,
   loadPanelOpen,
   loadPanelPosition,
   loadRailWidth,
+  saveBandHeight,
+  saveBandWidth,
   savePanelOpen,
   savePanelPosition,
   saveRailWidth,
 } from '../src/components/terminal/panelPosition.js';
 import {
+  TERMINAL_BAND_DEFAULT_HEIGHT_PX,
+  TERMINAL_BAND_DEFAULT_WIDTH_PX,
+  TERMINAL_BAND_MAX_HEIGHT_PX,
+  TERMINAL_BAND_MAX_WIDTH_PX,
+  TERMINAL_BAND_MIN_HEIGHT_PX,
+  TERMINAL_BAND_MIN_WIDTH_PX,
   TERMINAL_RAIL_DEFAULT_WIDTH_PX,
   TERMINAL_RAIL_MAX_WIDTH_PX,
   TERMINAL_RAIL_MIN_WIDTH_PX,
@@ -162,5 +172,59 @@ describe('railWidth persistence', () => {
     };
     expect(loadRailWidth()).toBe(TERMINAL_RAIL_DEFAULT_WIDTH_PX);
     expect(() => saveRailWidth(200)).not.toThrow();
+  });
+});
+
+describe('terminal band size persistence', () => {
+  let store: Record<string, string>;
+
+  beforeEach(() => {
+    store = stubLocalStorage();
+  });
+
+  afterEach(() => {
+    delete (globalThis as { localStorage?: unknown }).localStorage;
+  });
+
+  it('defaults with nothing stored', () => {
+    expect(loadBandHeight()).toBe(TERMINAL_BAND_DEFAULT_HEIGHT_PX);
+    expect(loadBandWidth()).toBe(TERMINAL_BAND_DEFAULT_WIDTH_PX);
+  });
+
+  it('round-trips height and width independently', () => {
+    saveBandHeight(TERMINAL_BAND_MIN_HEIGHT_PX + 17);
+    saveBandWidth(TERMINAL_BAND_MIN_WIDTH_PX + 23);
+    expect(loadBandHeight()).toBe(TERMINAL_BAND_MIN_HEIGHT_PX + 17);
+    expect(loadBandWidth()).toBe(TERMINAL_BAND_MIN_WIDTH_PX + 23);
+  });
+
+  it('clamps on save and on load', () => {
+    saveBandHeight(TERMINAL_BAND_MAX_HEIGHT_PX + 500);
+    expect(loadBandHeight()).toBe(TERMINAL_BAND_MAX_HEIGHT_PX);
+    store['pixel-agents.terminalBandWidth'] = String(TERMINAL_BAND_MIN_WIDTH_PX - 1);
+    expect(loadBandWidth()).toBe(TERMINAL_BAND_MIN_WIDTH_PX);
+    store['pixel-agents.terminalBandHeight'] = String(TERMINAL_BAND_MAX_HEIGHT_PX + 1);
+    expect(loadBandHeight()).toBe(TERMINAL_BAND_MAX_HEIGHT_PX);
+  });
+
+  it('falls back to the default on garbage', () => {
+    store['pixel-agents.terminalBandHeight'] = 'tall';
+    store['pixel-agents.terminalBandWidth'] = '-4';
+    expect(loadBandHeight()).toBe(TERMINAL_BAND_DEFAULT_HEIGHT_PX);
+    expect(loadBandWidth()).toBe(TERMINAL_BAND_DEFAULT_WIDTH_PX);
+  });
+
+  it('survives a throwing localStorage', () => {
+    (globalThis as { localStorage?: unknown }).localStorage = {
+      getItem: () => {
+        throw new Error('blocked');
+      },
+      setItem: () => {
+        throw new Error('blocked');
+      },
+    };
+    expect(() => saveBandHeight(300)).not.toThrow();
+    expect(loadBandHeight()).toBe(TERMINAL_BAND_DEFAULT_HEIGHT_PX);
+    expect(loadBandWidth()).toBe(TERMINAL_BAND_DEFAULT_WIDTH_PX);
   });
 });

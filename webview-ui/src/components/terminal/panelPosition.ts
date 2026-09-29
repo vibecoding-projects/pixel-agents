@@ -9,6 +9,12 @@
  * the default wins.
  */
 import {
+  TERMINAL_BAND_DEFAULT_HEIGHT_PX,
+  TERMINAL_BAND_DEFAULT_WIDTH_PX,
+  TERMINAL_BAND_MAX_HEIGHT_PX,
+  TERMINAL_BAND_MAX_WIDTH_PX,
+  TERMINAL_BAND_MIN_HEIGHT_PX,
+  TERMINAL_BAND_MIN_WIDTH_PX,
   TERMINAL_RAIL_DEFAULT_WIDTH_PX,
   TERMINAL_RAIL_MAX_WIDTH_PX,
   TERMINAL_RAIL_MIN_WIDTH_PX,
@@ -58,26 +64,71 @@ export function savePanelOpen(open: boolean): void {
   }
 }
 
-// ── Agent rail width (the DevTools-style rail/pane divider) ─────
-const RAIL_WIDTH_KEY = 'pixel-agents.terminalRailWidth';
-
-function clampRailWidth(w: number): number {
-  return Math.min(TERMINAL_RAIL_MAX_WIDTH_PX, Math.max(TERMINAL_RAIL_MIN_WIDTH_PX, w));
+// ── Clamped pixel sizes (rail width, band height/width) ─────────
+function clamp(v: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, v));
 }
 
-export function loadRailWidth(): number {
+function loadSize(key: string, fallback: number, min: number, max: number): number {
   try {
-    const raw = Number(localStorage.getItem(RAIL_WIDTH_KEY));
-    return Number.isFinite(raw) && raw > 0 ? clampRailWidth(raw) : TERMINAL_RAIL_DEFAULT_WIDTH_PX;
+    const raw = Number(localStorage.getItem(key));
+    return Number.isFinite(raw) && raw > 0 ? clamp(raw, min, max) : fallback;
   } catch {
-    return TERMINAL_RAIL_DEFAULT_WIDTH_PX;
+    return fallback;
   }
 }
 
-export function saveRailWidth(width: number): void {
+function saveSize(key: string, value: number, min: number, max: number): void {
   try {
-    localStorage.setItem(RAIL_WIDTH_KEY, String(clampRailWidth(width)));
+    localStorage.setItem(key, String(clamp(value, min, max)));
   } catch {
     /* per-browser convenience only — losing it is acceptable */
   }
+}
+
+// ── Agent rail width (the DevTools-style rail/pane divider) ─────
+const RAIL_WIDTH_KEY = 'pixel-agents.terminalRailWidth';
+
+export function loadRailWidth(): number {
+  return loadSize(
+    RAIL_WIDTH_KEY,
+    TERMINAL_RAIL_DEFAULT_WIDTH_PX,
+    TERMINAL_RAIL_MIN_WIDTH_PX,
+    TERMINAL_RAIL_MAX_WIDTH_PX,
+  );
+}
+
+export function saveRailWidth(width: number): void {
+  saveSize(RAIL_WIDTH_KEY, width, TERMINAL_RAIL_MIN_WIDTH_PX, TERMINAL_RAIL_MAX_WIDTH_PX);
+}
+
+// ── Terminal band size (edge-handle drag; height for bottom, width for sides) ─
+// The band unmounts when hidden, so React state alone forgets the drag.
+const BAND_HEIGHT_KEY = 'pixel-agents.terminalBandHeight';
+const BAND_WIDTH_KEY = 'pixel-agents.terminalBandWidth';
+
+export function loadBandHeight(): number {
+  return loadSize(
+    BAND_HEIGHT_KEY,
+    TERMINAL_BAND_DEFAULT_HEIGHT_PX,
+    TERMINAL_BAND_MIN_HEIGHT_PX,
+    TERMINAL_BAND_MAX_HEIGHT_PX,
+  );
+}
+
+export function saveBandHeight(height: number): void {
+  saveSize(BAND_HEIGHT_KEY, height, TERMINAL_BAND_MIN_HEIGHT_PX, TERMINAL_BAND_MAX_HEIGHT_PX);
+}
+
+export function loadBandWidth(): number {
+  return loadSize(
+    BAND_WIDTH_KEY,
+    TERMINAL_BAND_DEFAULT_WIDTH_PX,
+    TERMINAL_BAND_MIN_WIDTH_PX,
+    TERMINAL_BAND_MAX_WIDTH_PX,
+  );
+}
+
+export function saveBandWidth(width: number): void {
+  saveSize(BAND_WIDTH_KEY, width, TERMINAL_BAND_MIN_WIDTH_PX, TERMINAL_BAND_MAX_WIDTH_PX);
 }
