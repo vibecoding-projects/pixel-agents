@@ -831,7 +831,17 @@ export function useExtensionMessages(
         const id = msg.id as number;
         if (typeof id === 'number' && typeof msg.customTitle === 'string') {
           const title = msg.customTitle as string;
-          setCustomTitles((prev) => ({ ...prev, [id]: title }));
+          setCustomTitles((prev) => {
+            // '' is the server's "cleared" — drop the entry so labels fall
+            // back to the terminal name instead of rendering empty.
+            if (!title) {
+              if (!(id in prev)) return prev;
+              const next = { ...prev };
+              delete next[id];
+              return next;
+            }
+            return { ...prev, [id]: title };
+          });
         }
       } else if (msg.type === 'hooksStatus') {
         if (typeof msg.installed === 'boolean' && typeof msg.providerId === 'string') {

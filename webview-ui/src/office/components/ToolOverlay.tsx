@@ -253,8 +253,9 @@ export function ToolOverlay({
 
         // Name row: customTitle (New-agent form / rename) falls back to the
         // standalone terminal name; kept separate from the team-role row below
-        // — agentName never appears here (spec Deviations #7). `??` so an
-        // empty-string customTitle still wins over a terminal name.
+        // — agentName never appears here (spec Deviations #7). An empty title
+        // is never stored (renameAgent clears the entry), so `??` falls
+        // through to the terminal name.
         const nameRowValue = isSub ? null : (customTitles?.[id] ?? terminalNames?.[id] ?? null);
         const teamRoleLabel = ch.isTeamLead ? 'LEAD' : ch.agentName || null;
         const hasExtraLines = !!(ch.folderName || teamRoleLabel || nameRowValue);

@@ -409,15 +409,15 @@ export function getCharacterSprite(ch: Character, sprites: CharacterSprites): Sp
 }
 
 /** Display label priority: customTitle (user-given name) → agentName (team
- *  role) → terminalName → "Agent #id". `??` deliberately — an
- *  empty-string title still wins (v2 contract). */
+ *  role) → terminalName → "Agent #id". Empty strings count as absent — the
+ *  renameAgent clear path broadcasts '' and must fall through. */
 export function characterLabel(ch: {
   customTitle?: string;
   agentName?: string;
   terminalName?: string;
   id: number;
 }): string {
-  return ch.customTitle ?? ch.agentName ?? ch.terminalName ?? `Agent #${ch.id}`;
+  return ch.customTitle || ch.agentName || ch.terminalName || `Agent #${ch.id}`;
 }
 
 function randomRange(min: number, max: number): number {
