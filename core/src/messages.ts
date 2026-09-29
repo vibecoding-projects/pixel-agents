@@ -33,6 +33,8 @@ export type ServerMessage =
   | AgentRenamed
   | AgentRestarted
   | LaunchAgentFailed
+  | SessionMoved
+  | MoveSessionFailed
   | LayoutLoaded
   | FurnitureAssetsLoaded
   | CharacterSpritesLoaded
@@ -77,6 +79,7 @@ export type ClientMessage =
   | PtyResize
   | TerminalPaneReady
   | RestartAgent
+  | MoveSessionHere
   | AcknowledgeCrash;
 
 export interface ProviderCapabilities {
@@ -116,6 +119,7 @@ export interface ExistingAgents {
   ptyBackedAgents?: Record<string, boolean>;
   customTitles?: Record<string, string>;
   terminalNames?: Record<string, string>;
+  teammateAgents?: Record<string, boolean>;
   crashedAgentIds?: number[];
 }
 
@@ -255,6 +259,18 @@ export interface AgentRestarted {
 export interface LaunchAgentFailed {
   type: 'launchAgentFailed';
   folderPath: string;
+  reason: string;
+}
+
+export interface SessionMoved {
+  type: 'sessionMoved';
+  id: number;
+  terminalName: string;
+}
+
+export interface MoveSessionFailed {
+  type: 'moveSessionFailed';
+  id: number;
   reason: string;
 }
 
@@ -534,6 +550,11 @@ export interface TerminalPaneReady {
 
 export interface RestartAgent {
   type: 'restartAgent';
+  id: number;
+}
+
+export interface MoveSessionHere {
+  type: 'moveSessionHere';
   id: number;
 }
 

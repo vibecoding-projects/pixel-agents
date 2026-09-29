@@ -109,6 +109,8 @@ components:
         - $ref: '#/components/schemas/AgentRenamed'
         - $ref: '#/components/schemas/AgentRestarted'
         - $ref: '#/components/schemas/LaunchAgentFailed'
+        - $ref: '#/components/schemas/SessionMoved'
+        - $ref: '#/components/schemas/MoveSessionFailed'
         # Layout
         - $ref: '#/components/schemas/LayoutLoaded'
         # Assets
@@ -160,6 +162,7 @@ components:
         - $ref: '#/components/schemas/PtyResize'
         - $ref: '#/components/schemas/TerminalPaneReady'
         - $ref: '#/components/schemas/RestartAgent'
+        - $ref: '#/components/schemas/MoveSessionHere'
         - $ref: '#/components/schemas/AcknowledgeCrash'
       discriminator: type
 
@@ -285,6 +288,11 @@ components:
           description: Map of agent ID (string) to terminal display name.
           additionalProperties:
             type: string
+        teammateAgents:
+          type: object
+          description: Map of agent ID (string) to true for agents that are teammates of a lead.
+          additionalProperties:
+            type: boolean
         crashedAgentIds:
           type: array
           description: >-
@@ -604,6 +612,37 @@ components:
           const: launchAgentFailed
         folderPath:
           type: string
+        reason:
+          type: string
+
+    SessionMoved:
+      description: >-
+        An adopted agent's session now runs in a server-owned pty: the outside
+        process was stopped and the same session resumed in-office. The agent
+        is pty-backed from here on. Broadcast.
+      type: object
+      additionalProperties: false
+      required: [type, id, terminalName]
+      properties:
+        type:
+          const: sessionMoved
+        id:
+          type: integer
+        terminalName:
+          type: string
+
+    MoveSessionFailed:
+      description: >-
+        A moveSessionHere request was refused or failed; the agent is unchanged.
+        Sent point-to-point to the requester.
+      type: object
+      additionalProperties: false
+      required: [type, id, reason]
+      properties:
+        type:
+          const: moveSessionFailed
+        id:
+          type: integer
         reason:
           type: string
 
@@ -1034,6 +1073,19 @@ components:
       properties:
         type:
           const: restartAgent
+        id:
+          type: integer
+
+    MoveSessionHere:
+      description: >-
+        Move an adopted agent's session into an in-office pty (stop the outside
+        process, resume the session here). Privileged only.
+      type: object
+      additionalProperties: false
+      required: [type, id]
+      properties:
+        type:
+          const: moveSessionHere
         id:
           type: integer
 
