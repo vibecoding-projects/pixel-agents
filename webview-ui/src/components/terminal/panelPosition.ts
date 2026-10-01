@@ -12,6 +12,7 @@ import {
   TERMINAL_BAND_DEFAULT_HEIGHT_PX,
   TERMINAL_BAND_DEFAULT_WIDTH_PX,
   TERMINAL_BAND_MAX_HEIGHT_PX,
+  TERMINAL_BAND_MAX_VIEWPORT_FRACTION,
   TERMINAL_BAND_MAX_WIDTH_PX,
   TERMINAL_BAND_MIN_HEIGHT_PX,
   TERMINAL_BAND_MIN_WIDTH_PX,
@@ -131,4 +132,23 @@ export function loadBandWidth(): number {
 
 export function saveBandWidth(width: number): void {
   saveSize(BAND_WIDTH_KEY, width, TERMINAL_BAND_MIN_WIDTH_PX, TERMINAL_BAND_MAX_WIDTH_PX);
+}
+
+/** Live width cap for a side-docked band: a fraction of the viewport width,
+ *  never above the absolute ceiling, never below the minimum. */
+export function bandMaxWidth(viewportWidth: number): number {
+  return clamp(
+    Math.floor(viewportWidth * TERMINAL_BAND_MAX_VIEWPORT_FRACTION),
+    TERMINAL_BAND_MIN_WIDTH_PX,
+    TERMINAL_BAND_MAX_WIDTH_PX,
+  );
+}
+
+/** Live height cap for a bottom-docked band (same rule on the vertical axis). */
+export function bandMaxHeight(viewportHeight: number): number {
+  return clamp(
+    Math.floor(viewportHeight * TERMINAL_BAND_MAX_VIEWPORT_FRACTION),
+    TERMINAL_BAND_MIN_HEIGHT_PX,
+    TERMINAL_BAND_MAX_HEIGHT_PX,
+  );
 }

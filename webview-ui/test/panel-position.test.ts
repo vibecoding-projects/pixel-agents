@@ -10,6 +10,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  bandMaxHeight,
+  bandMaxWidth,
   loadBandHeight,
   loadBandWidth,
   loadPanelOpen,
@@ -25,6 +27,8 @@ import {
   TERMINAL_BAND_DEFAULT_HEIGHT_PX,
   TERMINAL_BAND_DEFAULT_WIDTH_PX,
   TERMINAL_BAND_MAX_HEIGHT_PX,
+  TERMINAL_BAND_MAX_VIEWPORT_FRACTION,
+  TERMINAL_BAND_MAX_WIDTH_PX,
   TERMINAL_BAND_MIN_HEIGHT_PX,
   TERMINAL_BAND_MIN_WIDTH_PX,
   TERMINAL_RAIL_DEFAULT_WIDTH_PX,
@@ -225,5 +229,24 @@ describe('terminal band size persistence', () => {
     expect(() => saveBandHeight(300)).not.toThrow();
     expect(loadBandHeight()).toBe(TERMINAL_BAND_DEFAULT_HEIGHT_PX);
     expect(loadBandWidth()).toBe(TERMINAL_BAND_DEFAULT_WIDTH_PX);
+  });
+});
+
+describe('terminal band viewport cap', () => {
+  it('caps at a fraction of the viewport, never above the absolute ceiling', () => {
+    expect(bandMaxWidth(1000)).toBe(Math.floor(1000 * TERMINAL_BAND_MAX_VIEWPORT_FRACTION));
+    expect(bandMaxHeight(800)).toBe(Math.floor(800 * TERMINAL_BAND_MAX_VIEWPORT_FRACTION));
+    expect(bandMaxWidth(100_000)).toBe(TERMINAL_BAND_MAX_WIDTH_PX);
+    expect(bandMaxHeight(100_000)).toBe(TERMINAL_BAND_MAX_HEIGHT_PX);
+  });
+
+  it('never drops below the minimum size on a tiny viewport', () => {
+    expect(bandMaxWidth(10)).toBe(TERMINAL_BAND_MIN_WIDTH_PX);
+    expect(bandMaxHeight(10)).toBe(TERMINAL_BAND_MIN_HEIGHT_PX);
+  });
+
+  it('the absolute ceilings are large enough for a wide monitor', () => {
+    expect(TERMINAL_BAND_MAX_WIDTH_PX).toBeGreaterThanOrEqual(2400);
+    expect(TERMINAL_BAND_MAX_HEIGHT_PX).toBeGreaterThanOrEqual(1600);
   });
 });

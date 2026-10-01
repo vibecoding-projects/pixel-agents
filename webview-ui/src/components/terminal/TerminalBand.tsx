@@ -2,8 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   TERMINAL_BAND_HANDLE_THICKNESS_PX,
-  TERMINAL_BAND_MAX_HEIGHT_PX,
-  TERMINAL_BAND_MAX_WIDTH_PX,
   TERMINAL_BAND_MIN_HEIGHT_PX,
   TERMINAL_BAND_MIN_WIDTH_PX,
   TERMINAL_RAIL_MAX_WIDTH_PX,
@@ -14,6 +12,8 @@ import type { RailAgent } from './AgentRail.js';
 import { AgentRail } from './AgentRail.js';
 import type { PanelPosition } from './panelPosition.js';
 import {
+  bandMaxHeight,
+  bandMaxWidth,
   loadBandHeight,
   loadBandWidth,
   loadRailWidth,
@@ -85,14 +85,15 @@ export function TerminalBand({
           ? drag.start - e.clientX
           : e.clientX - drag.start
         : drag.start - e.clientY;
+      // The cap follows the window (a fraction of it), not a fixed pixel count.
       if (drag.vertical) {
         sizeRef.current.width = Math.min(
-          TERMINAL_BAND_MAX_WIDTH_PX,
+          bandMaxWidth(window.innerWidth),
           Math.max(TERMINAL_BAND_MIN_WIDTH_PX, drag.startSize + delta),
         );
       } else {
         sizeRef.current.height = Math.min(
-          TERMINAL_BAND_MAX_HEIGHT_PX,
+          bandMaxHeight(window.innerHeight),
           Math.max(TERMINAL_BAND_MIN_HEIGHT_PX, drag.startSize + delta),
         );
       }

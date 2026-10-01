@@ -326,14 +326,19 @@ export const TERMINAL_FONT_FAMILY = 'Menlo, Monaco, "Courier New", monospace';
 export const TERMINAL_FONT_SIZE_PX = 13;
 /** xterm theme background — matches --color-bg-dark. */
 export const TERMINAL_THEME_BACKGROUND = '#181828';
-/** Terminal band default/min/max heights (px) for the drag-resize handle. */
+/** Terminal band default/min/max heights (px) for the drag-resize handle.
+ *  The max values are ABSOLUTE ceilings; the live cap is the viewport
+ *  fraction below (see panelPosition.bandMaxHeight/bandMaxWidth). */
 export const TERMINAL_BAND_DEFAULT_HEIGHT_PX = 260;
 export const TERMINAL_BAND_MIN_HEIGHT_PX = 120;
-export const TERMINAL_BAND_MAX_HEIGHT_PX = 600;
+export const TERMINAL_BAND_MAX_HEIGHT_PX = 1600;
 /** Terminal band default/min/max widths (px) when docked left or right. */
 export const TERMINAL_BAND_DEFAULT_WIDTH_PX = 480;
 export const TERMINAL_BAND_MIN_WIDTH_PX = 320;
-export const TERMINAL_BAND_MAX_WIDTH_PX = 900;
+export const TERMINAL_BAND_MAX_WIDTH_PX = 2400;
+/** The band may grow to this fraction of the window on its drag axis, so the
+ *  office always keeps some room, whatever the monitor size. */
+export const TERMINAL_BAND_MAX_VIEWPORT_FRACTION = 0.85;
 /** Client-side scrollback (lines) — matches server PTY_SCROLLBACK_MAX_LINES. */
 export const TERMINAL_SCROLLBACK_LINES = 2000;
 /** How long a pty-activity bump holds the typing animation window open (ms). */
