@@ -28,6 +28,7 @@ import type { ConsentEffects } from './providers/hook/consentExecutor.js';
 import { applyConsentChoice } from './providers/hook/consentExecutor.js';
 import { hooksConsentRequest } from './providers/hook/consentGate.js';
 import { claudeProvider, hookProviderById, hookProviders } from './providers/index.js';
+import { ptyEnvironment } from './ptyEnv.js';
 
 type WsSend = (message: Record<string, unknown>) => void;
 
@@ -399,7 +400,7 @@ export function handleClientMessage(
         shell: process.env.SHELL ?? '/bin/zsh',
         args: ['-l', '-c', [launch.command, ...launch.args].join(' ')],
         cwd,
-        env: { ...process.env, ...launch.env },
+        env: ptyEnvironment(process.env, launch.env),
         cols: 80,
         rows: 24,
         scrollbackCapacity: PTY_SCROLLBACK_MAX_LINES,

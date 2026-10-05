@@ -77,6 +77,37 @@ describe('launchAgentStandalone', () => {
     expect(shellCmd).toContain(agent!.sessionId);
   });
 
+  it('never leaks the host Claude session into the pty (nested-session env vars are stripped)', () => {
+    // A daemon started from inside a Claude Code session inherits these; a
+    // child claude that sees them becomes a CHILD session of that one and
+    // writes no top-level transcript, so it can never be resumed/restored.
+    const seeded: Record<string, string> = {
+      CLAUDECODE: '1',
+      CLAUDE_CODE_SESSION_ID: 'parent-session',
+      CLAUDE_CODE_CHILD_SESSION: '1',
+      CLAUDE_CODE_MESSAGING_SOCKET: '/tmp/cc-socks/1.sock',
+      CLAUDE_CODE_ENTRYPOINT: 'cli',
+    };
+    const previous: Record<string, string | undefined> = {};
+    for (const [k, v] of Object.entries(seeded)) {
+      previous[k] = process.env[k];
+      process.env[k] = v;
+    }
+    try {
+      const { host, starts } = makeFakePtyHost();
+      launchAgentStandalone({}, makeDeps(host));
+      const env = starts[0].opts.env;
+      for (const k of Object.keys(seeded)) expect(env).not.toHaveProperty(k);
+      expect(env.PATH).toBe(process.env.PATH);
+      expect(env.PWD).toBe(launchCwd);
+    } finally {
+      for (const [k, v] of Object.entries(previous)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+
   it('pre-registers the expected JSONL path in knownJsonlFiles', () => {
     const { host } = makeFakePtyHost();
     const deps = makeDeps(host);

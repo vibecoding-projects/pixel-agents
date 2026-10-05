@@ -27,6 +27,7 @@ import {
 import { readNewLines, reassignAgentToFile, startFileWatching } from './fileWatcher.js';
 import { assignPaletteIfNeeded } from './paletteAssigner.js';
 import { CLAUDE_TERMINAL_NAME_PREFIX } from './providers/hook/claude/constants.js';
+import { ptyEnvironment } from './ptyEnv.js';
 import type { AgentState } from './types.js';
 
 export interface LaunchStandaloneOptions {
@@ -115,7 +116,7 @@ export function launchAgentStandalone(
     shell,
     args: ['-l', '-c', shellCommand],
     cwd,
-    env: { ...process.env, ...launch.env },
+    env: ptyEnvironment(process.env, launch.env),
     cols: 80,
     rows: 24,
     scrollbackCapacity: PTY_SCROLLBACK_MAX_LINES,

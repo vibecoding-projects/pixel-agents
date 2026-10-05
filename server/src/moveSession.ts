@@ -22,6 +22,7 @@ import {
   PTY_SCROLLBACK_MAX_LINES,
 } from './constants.js';
 import { CLAUDE_TERMINAL_NAME_PREFIX } from './providers/hook/claude/constants.js';
+import { ptyEnvironment } from './ptyEnv.js';
 import { hasInlineTeammates } from './teamUtils.js';
 import type { AgentState } from './types.js';
 
@@ -174,7 +175,7 @@ export async function moveSessionHere(id: number, deps: MoveSessionDeps): Promis
         shell: process.env.SHELL ?? '/bin/zsh',
         args: ['-l', '-c', [launch.command, ...launch.args].join(' ')],
         cwd,
-        env: { ...process.env, ...launch.env },
+        env: ptyEnvironment(process.env, launch.env),
         cols: 80,
         rows: 24,
         scrollbackCapacity: PTY_SCROLLBACK_MAX_LINES,
