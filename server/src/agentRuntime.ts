@@ -89,6 +89,9 @@ export class AgentRuntime {
   /** Standalone-only pty host (node-pty). Injected by the CLI adapter via
    *  setPtyHost; stays null under VS Code, where terminals are native. */
   private _ptyHost: PtyManager | null = null;
+  /** Set for the lifetime of dispose(): removals during shutdown are NOT
+   *  persisted, or the file the next daemon restores from ends up empty. */
+  private disposing = false;
 
   constructor(
     private readonly store: AgentStateStore,
@@ -349,9 +352,10 @@ export class AgentRuntime {
     // Notify adapter before deleting from store
     this.lifecycleCallbacks.onAgentRemoved?.(id, agent);
 
-    // Remove from store (fires agentRemoved event) and persist
+    // Remove from store (fires agentRemoved event) and persist — except during
+    // shutdown, when the on-disk list must survive for the next daemon.
     this.store.delete(id);
-    this.store.persist();
+    if (!this.disposing) this.store.persist();
   }
 
   /** Remove a single teammate agent. */
@@ -604,6 +608,9 @@ export class AgentRuntime {
       this.staleCheckTimer = null;
     }
 
+    // Tear down in memory only: what is on disk is what the next daemon
+    // restores (stopped pty agents, adopted sessions).
+    this.disposing = true;
     for (const id of [...this.store.keys()]) {
       this.removeAgent(id);
     }

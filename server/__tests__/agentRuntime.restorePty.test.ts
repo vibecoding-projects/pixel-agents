@@ -127,4 +127,35 @@ describe('AgentRuntime -- restore of persisted pty-backed agents', () => {
 
     expect(store.has(3)).toBe(false);
   });
+
+  it('dispose() (a clean shutdown) leaves the persisted agent list intact for the next daemon', () => {
+    // A shutdown removes every agent from memory; it must NOT persist those
+    // removals, or the file the next daemon restores from is empty.
+    const external: PersistedAgent = {
+      id: 9,
+      sessionId: 'sess-ext',
+      terminalName: '',
+      isExternal: true,
+      jsonlFile: jsonlPath,
+      projectDir: tmpDir,
+    };
+    const adapter = createMockAdapter([ptyRecord(), external]);
+    const store = new AgentStateStore();
+    store.setAdapter(adapter);
+    runtime = new AgentRuntime(store, claudeProvider);
+    const { host } = makeFakePtyHost();
+    runtime.setPtyHost(host);
+    runtime.restoreExternalAgents();
+    expect(store.size).toBe(2);
+
+    runtime.dispose();
+    runtime = undefined;
+
+    expect(store.size).toBe(0);
+    const left = adapter
+      .loadAgents()
+      .map((a) => a.id)
+      .sort();
+    expect(left).toEqual([3, 9]);
+  });
 });
