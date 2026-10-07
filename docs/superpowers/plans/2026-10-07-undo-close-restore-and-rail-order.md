@@ -16,7 +16,7 @@
 - `core/src/messages.ts` is GENERATED. Edit `core/asyncapi.yaml`, run `npm run asyncapi:generate`, commit both. CI fails on drift.
 - `server/` and `core/` relative imports carry `.js` suffixes. Webview uses `import type` for type-only imports (`verbatimModuleSyntax`), no `enum`, `noUnusedLocals`/`noUnusedParameters` everywhere.
 - Constants live in `server/src/constants.ts` (server) / `webview-ui/src/constants.ts` (webview). No magic numbers inline.
-- Webview styling: hex/rgb literals only in `webview-ui/src/constants.ts`; shadows `var(--shadow-pixel)` or `2px 2px 0px`; borders `2px solid`; `borderRadius: 0`; FS Pixel Sans is global. ESLint rules `no-inline-colors`, `pixel-shadow`, `pixel-font` block PRs.
+- Webview styling: hex/rgb literals only in `webview-ui/src/constants.ts`; shadows via the Tailwind `shadow-pixel` class (an inline `boxShadow` string literal only passes the `pixel-shadow` lint rule as `2px 2px 0px …`; the CSS token is `--shadow-pixel`, so `var(--shadow-pixel)` inline can never pass); borders `2px solid`; `borderRadius: 0`; FS Pixel Sans is global. ESLint rules `no-inline-colors`, `pixel-shadow`, `pixel-font` block PRs.
 - Logging prefix `[Pixel Agents]` on the server, `[Webview]` in the SPA.
 - Commit after every task with the attribution trailer `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`. The pre-commit hook runs prettier on staged files; stage again if it rewrites.
 - Run from the repo root: `npm run test:server`, `npm run test:webview`, `npm run check-types`, `npm run lint`, `npm run e2e -- --grep "<name>"`.
@@ -259,15 +259,9 @@ export interface ClosedSession {
   railIndex: number;
   closedAt: number;
 }
-
-/** What the Closed list renders. Paths never leave the server. */
-export interface ClosedSessionSummary {
-  sessionId: string;
-  terminalName: string;
-  customTitle?: string;
-  closedAt: number;
-}
 ```
+
+`ClosedSessionSummary` is NOT hand-written: Modelina generates it into `core/src/messages.ts` from the AsyncAPI schema (same as `AgentSeatMeta`). Server and webview both import it from there, so the two cannot drift.
 
 In `core/src/adapter.ts`, change the import to `import type { ClosedSession, PersistedAgent } from './schemas.js';` and add to `StateAdapter` after `saveSeats`:
 
@@ -384,7 +378,10 @@ describe('closedSessions + agentOrder', () => {
 
   it('malformed values load as empty', () => {
     const adapter = new FileStateAdapter({ namespace: 'standalone' });
-    const file = path.join(process.env.HOME!, '.pixel-agents', 'standalone-state.json');
+    // The file isolates via vi.mock('os', homedir: () => tempHome) — NOT
+    // process.env.HOME. Build the path from tempHome or the test overwrites
+    // the developer's real ~/.pixel-agents/standalone-state.json.
+    const file = path.join(tempHome, '.pixel-agents', 'standalone-state.json');
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(
       file,
@@ -396,7 +393,7 @@ describe('closedSessions + agentOrder', () => {
 
   it('agentOrder keeps only integers', () => {
     const adapter = new FileStateAdapter({ namespace: 'standalone' });
-    const file = path.join(process.env.HOME!, '.pixel-agents', 'standalone-state.json');
+    const file = path.join(tempHome, '.pixel-agents', 'standalone-state.json');
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify({ agents: [], seats: {}, agentOrder: [1, 'x', 2.5, 3] }));
     expect(adapter.loadAgentOrder()).toEqual([1, 3]);
@@ -614,7 +611,8 @@ Expected: FAIL — module not found.
 
 ```ts
 import type { StateAdapter } from '../../core/src/adapter.js';
-import type { ClosedSession, ClosedSessionSummary } from '../../core/src/schemas.js';
+import type { ClosedSessionSummary } from '../../core/src/messages.js';
+import type { ClosedSession } from '../../core/src/schemas.js';
 import { CLOSED_SESSIONS_MAX } from './constants.js';
 
 /**
@@ -837,9 +835,11 @@ Fields + helpers inside the class:
     return this.agentOrder;
   }
 
+  /** Negative index = unknown position = append (a Closed record whose rail
+   *  index was never known must not jump to the top on restore). */
   insertInOrder(id: number, index: number): void {
     this.order = this.order.filter((v) => v !== id);
-    const at = Math.max(0, Math.min(index, this.order.length));
+    const at = index < 0 ? this.order.length : Math.min(index, this.order.length);
     this.order.splice(at, 0, id);
     this.saveOrder();
   }
@@ -1255,6 +1255,14 @@ describe('AgentRuntime close grace window', () => {
     expect(adapter.loadAgentOrder()).toEqual([2]);
   });
 
+  it('dispose with a closing ADOPTED agent writes no record', () => {
+    runtime.setPtyHost(fakeHost().host);
+    store.set(3, makeAgent(3, { ptyBacked: undefined, isExternal: true, terminalRef: undefined }));
+    runtime.beginClose(3, { railIndex: 0, ptyBacked: false });
+    runtime.dispose();
+    expect(store.getAdapter()!.loadClosedSessions()).toEqual([]);
+  });
+
   it('an agent appearing for a closed session drops its record', () => {
     runtime.setPtyHost(fakeHost().host);
     store.set(1, makeAgent(1));
@@ -1366,6 +1374,10 @@ Accessors and the window API (place after `get ptyHost()`):
       });
       this.unregisterAgent(agent.sessionId);
     }
+    // Parity with the old immediate close: keep any scan path from re-adopting
+    // the dying process's last JSONL flush (which would drop the record via
+    // dropMatching).
+    this.dismissalTracker.dismiss(agent.jsonlFile);
     this.removeAgent(id);
     if (snap.ptyBacked) this.broadcastClosedSessions();
   }
@@ -1389,7 +1401,7 @@ Accessors and the window API (place after `get ptyHost()`):
 
 `removeAgent`: add `this.clearCloseTimer(id);` right after the `if (!agent) return;` guard.
 
-`dispose()`: before `this._ptyHost?.disposeAll();` (the very first line) insert:
+`dispose()`: make it idempotent (tests call it explicitly AND in afterEach) with `if (this.disposing) return;` as its first statement, then before `this._ptyHost?.disposeAll();` insert:
 
 ```ts
 // Closing agents are closed for good: record them, drop them from the
@@ -1522,6 +1534,24 @@ describe('closeAgent with a grace window', () => {
       ]),
     );
     expect(store.get(1)?.closing).toBeUndefined();
+  });
+
+  it('undoClose on an adopted session clears the dismissal and re-sends nothing pty-specific', () => {
+    const ctx = makeCtx(makeFakePtyHost().host);
+    const ext = createTestAgent({ id: 1, isExternal: true, jsonlFile: '/test/ext.jsonl' });
+    store.set(1, ext);
+    handleClientMessage({ type: 'closeAgent', id: 1 }, send, ctx);
+    expect(runtime!.dismissalTracker.isDismissed('/test/ext.jsonl')).toBe(true);
+    broadcasts.length = 0;
+    handleClientMessage({ type: 'undoClose', id: 1 }, send, ctx);
+    expect(runtime!.dismissalTracker.isDismissed('/test/ext.jsonl')).toBe(false);
+    expect(broadcasts[0]).toMatchObject({
+      type: 'agentCreated',
+      id: 1,
+      restored: true,
+      isExternal: true,
+    });
+    expect(broadcasts.some((b) => b.type === 'agentCrashed')).toBe(false);
   });
 
   it('undoClose for a non-closing agent and unprivileged undo emit nothing', () => {
@@ -1733,7 +1763,7 @@ In `handleWebviewReady`, after `teammateAgents,` in `existingAgentsMsg` add:
     ),
 ```
 
-- [ ] **Step 6: Fix existing closeAgent tests**
+- [ ] **Step 6: Fix existing closeAgent tests** (at plan time none exist in `server/__tests__`, so expect a no-op; `server.test.ts` keeps asserting today's `agentCreated` payload unchanged, which together with Task 5's unit test is the spec's "byte-identical" check)
 
 Run `grep -n "closeAgent" server/__tests__/*.test.ts`. Any test sending `closeAgent` through a ctx without `privileged: true` must set it; any asserting immediate removal with a pty host present must either advance fake timers by `CLOSE_GRACE_MS` or use a ctx without a pty host.
 
@@ -1965,7 +1995,15 @@ git commit -m "refactor(server): shared resume-spawn and transcript-poll helpers
 
 - [ ] **Step 1: Write the failing tests**
 
-Same scaffolding as Task 7 (fake timers, temp HOME, fake host, `makeCtx`). Helper that closes an agent and elapses the window:
+Same scaffolding as Task 7 (fake timers, temp HOME, fake host, `makeCtx`). `agentCreated` is emitted through the store's `agentAdded` event (httpServer's per-socket closure), not `store.broadcast`, so the test mirrors what the socket does — add to `beforeEach`:
+
+```ts
+import { agentCreatedMessage } from '../src/agentCreatedMessage.js';
+// ...
+store.on('agentAdded', (id, a, extra) => broadcasts.push(agentCreatedMessage(id, a, extra)));
+```
+
+Helper that closes an agent and elapses the window:
 
 ```ts
 function closeAndElapse(ctx: ClientMessageContext, id: number) {
@@ -2043,6 +2081,23 @@ describe('restoreSession', () => {
     expect(starts.at(-1)!.opts.args.join(' ')).toContain('--session-id sess-1');
     const newId = [...store.keys()][0];
     expect(runtime!.jsonlPollTimers.has(newId)).toBe(true);
+  });
+
+  it('a throwing spawn leaves a stopped agent with the crash glyph (record already gone)', () => {
+    const { host } = makeFakePtyHost();
+    (host.start as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+      throw new Error('posix_spawnp failed');
+    });
+    const ctx = makeCtx(host);
+    store.set(1, ptyAgent(1));
+    closeAndElapse(ctx, 1);
+    expect(() =>
+      handleClientMessage({ type: 'restoreSession', sessionId: 'sess-1' }, send, ctx),
+    ).not.toThrow();
+    const newId = [...store.keys()][0];
+    expect(host.markStopped).toHaveBeenCalledWith(newId, expect.objectContaining({ code: 1 }));
+    expect(broadcasts.some((b) => b.type === 'agentCrashed' && b.id === newId)).toBe(true);
+    expect(runtime!.closedSessions!.list()).toEqual([]);
   });
 
   it('unknown sessionId and unprivileged are no-ops', () => {
@@ -2135,7 +2190,16 @@ Expected: FAIL.
         startTranscriptPoll(id, agent, record.projectDir, store, runtime);
       }
 
-      spawnResumedPty(agent, { store, runtime, provider: ctx.provider, launchCwd: ctx.launchCwd });
+      // A failed spawn must not throw out of the dispatcher: the record is
+      // already gone, so leave the agent as a STOPPED pty (crash glyph +
+      // Restart) — the transcript is untouched and the user has a way forward.
+      try {
+        spawnResumedPty(agent, { store, runtime, provider: ctx.provider, launchCwd: ctx.launchCwd });
+      } catch (err) {
+        console.error(`[Pixel Agents] Restore of ${sessionId} failed to spawn:`, err);
+        runtime.ptyHost.markStopped(id, { code: 1 });
+        store.broadcast({ type: 'agentCrashed', id, code: 1 });
+      }
 
       store.insertInOrder(id, record.railIndex);
       store.broadcast({ type: 'agentOrder', order: store.agentOrder });
@@ -2439,8 +2503,8 @@ export function UndoCloseToast({ entries, onUndo }: UndoCloseToastProps) {
         return (
           <div
             key={e.id}
-            className="flex items-center gap-10 px-10 py-6 bg-bg border-2 border-border text-sm text-text"
-            style={{ boxShadow: 'var(--shadow-pixel)', borderRadius: 0, minWidth: 260 }}
+            className="relative flex items-center gap-10 px-10 py-6 bg-bg border-2 border-border text-sm text-text shadow-pixel"
+            style={{ borderRadius: 0, minWidth: 260 }}
           >
             <span className="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
               Closed {e.label}
@@ -2466,7 +2530,7 @@ export function UndoCloseToast({ entries, onUndo }: UndoCloseToastProps) {
 }
 ```
 
-Give each toast row `className="relative …"` (the bar is absolutely positioned inside it). Check the Tailwind class names used elsewhere (`bg-bg`, `border-border`, `text-text`, `bg-accent`) — they exist in `AgentRail.tsx`/`Button.tsx`; `bottom: 72` must clear the bottom toolbar (measure once in the browser; adjust).
+The row is `relative` so the bar can sit absolutely inside it; the shadow is the `shadow-pixel` Tailwind class, never an inline `boxShadow` (see Global Constraints). Check the Tailwind class names used elsewhere (`bg-bg`, `border-border`, `text-text`, `bg-accent`) — they exist in `AgentRail.tsx`/`Button.tsx`; `bottom: 72` must clear the bottom toolbar (measure once in the browser; adjust).
 
 - [ ] **Step 3: App wiring**
 
@@ -2529,9 +2593,9 @@ const undoEntries = useMemo(
 - [ ] **Step 4: Type-check + lint**
 
 Run: `npm run check-types && npm run lint`
-Expected: PASS (unused `handleRestoreSession` etc. will fail `noUnusedLocals` until Task 12 — if so, wire them into `TerminalBand` props in Task 12 within the same commit, or pass them now as props the band ignores; prefer doing Task 12 before committing).
+Expected: the only failures are `noUnusedLocals` on `handleRestoreSession`, `handleForgetClosedSession`, `handleReorderAgents` — Task 12 consumes them. **Tasks 11 and 12 MUST land in one commit**: do Task 12 now, re-run this step, then commit.
 
-- [ ] **Step 5: Commit (may be combined with Task 12)**
+- [ ] **Step 5: Commit (together with Task 12)**
 
 ```bash
 git add webview-ui/src/components/UndoCloseToast.tsx webview-ui/src/App.tsx webview-ui/src/constants.ts
@@ -2674,7 +2738,7 @@ if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
 }
 ```
 
-Insertion line: add to the row's `style` a `boxShadow` when `dropHint?.id === agent.id`: `dropHint.after ? 'inset 0 -2px 0 var(--color-accent)' : 'inset 0 2px 0 var(--color-accent)'` (an inset shadow is not a drop shadow; the `pixel-shadow` lint rule only inspects `box-shadow` values — if it complains, use a 2 px `borderTop`/`borderBottom` color swap instead). Set `draggable={false}` on the ✎ button, the ✕ button, and the rename `<input>`.
+Insertion line: NOT a box-shadow (the `pixel-shadow` lint rule rejects any inline `boxShadow` but the pixel one, and hiding it in a conditional expression would be circumvention, not compliance). Swap the row's 2 px borders instead: give every row `border-t-2 border-t-transparent` (so nothing jumps) on top of its existing `border-b-2 border-border`, and when `dropHint?.id === agent.id` add `dropHint.after ? 'border-b-accent' : 'border-t-accent'` to the className. Set `draggable={false}` on the ✎ button, the ✕ button, and the rename `<input>`.
 
 Closed section, after the `agents.map(...)` block, inside the rail's root div:
 
@@ -2834,7 +2898,7 @@ const AFTER_GRACE_MS = GRACE_MS + 5_000;
 async function spawnNamed(page: import('@playwright/test').Page, name: string): Promise<void> {
   await page.getByRole('button', { name: '+ Agent' }).click();
   await expect(page.getByRole('dialog', { name: 'New agent' })).toBeVisible();
-  await page.getByLabel('Name').fill(name); // check NewAgentModal's label text
+  await page.getByLabel('Agent name').fill(name); // the input's aria-label
   await page.getByRole('button', { name: 'Spawn' }).click();
 }
 
@@ -2882,6 +2946,10 @@ test.describe('Standalone / Close, undo, restore', () => {
     await expect(page.getByRole('tab', { name: /Reloaded/ })).toBeVisible({
       timeout: SPAWN_TIMEOUT_MS,
     });
+    // Budget: close → reload → full handshake (every sprite over WS on a
+    // throttled CI runner) → Undo click must all fit inside CLOSE_GRACE_MS
+    // (10 s). Drain first so the reload is the only work in between.
+    await standalone.drainMessages();
     await page.getByRole('button', { name: 'Close Reloaded' }).click();
     await page.reload();
     const undo = page.getByRole('button', { name: 'Undo closing Reloaded' });
