@@ -5,14 +5,18 @@ import { AgentStateStore } from '../src/agentStateStore.js';
 import type { AgentState, PersistedAgent } from '../src/types.js';
 
 function createMockAdapter(): StateAdapter {
+  // The order round-trips through the mock so a second store can load it.
+  let order: number[] = [];
   return {
     loadAgents: vi.fn(() => []),
     saveAgents: vi.fn(),
     loadSeats: vi.fn(() => ({})),
     loadClosedSessions: vi.fn(() => []),
     saveClosedSessions: vi.fn(),
-    loadAgentOrder: vi.fn(() => []),
-    saveAgentOrder: vi.fn(),
+    loadAgentOrder: vi.fn(() => order),
+    saveAgentOrder: vi.fn((o: number[]) => {
+      order = [...o];
+    }),
     saveSeats: vi.fn(),
     getSetting: <T>(_k: string, d: T): T => d,
     setSetting: vi.fn<(key: string, value: unknown) => void>(),
@@ -322,6 +326,56 @@ describe('AgentStateStore', () => {
       store.set(1, createTestAgent({ id: 1 }));
       expect(cb1).toHaveBeenCalledOnce();
       expect(cb2).toHaveBeenCalledOnce();
+    });
+  });
+
+  describe('rail order', () => {
+    it('appends top-level agents on set and removes on delete', () => {
+      store.set(2, createTestAgent({ id: 2 }));
+      store.set(1, createTestAgent({ id: 1 }));
+      store.set(7, createTestAgent({ id: 7, leadAgentId: 1, teamName: 't' })); // teammate: not ordered
+      store.set(8, createTestAgent({ id: 8, spawnToolUseId: 'toolu_x' })); // spawn: not ordered
+      expect(store.agentOrder).toEqual([2, 1]);
+      store.delete(2);
+      expect(store.agentOrder).toEqual([1]);
+    });
+
+    it('reorder keeps only current top-level ids and appends omitted ones', () => {
+      store.set(1, createTestAgent({ id: 1 }));
+      store.set(2, createTestAgent({ id: 2 }));
+      store.set(3, createTestAgent({ id: 3 }));
+      expect(store.reorder([3, 99, 1, 3])).toEqual([3, 1, 2]);
+      expect(store.agentOrder).toEqual([3, 1, 2]);
+    });
+
+    it('insertInOrder clamps and dedupes; a negative index appends', () => {
+      store.set(1, createTestAgent({ id: 1 }));
+      store.set(2, createTestAgent({ id: 2 }));
+      store.insertInOrder(2, 0);
+      expect(store.agentOrder).toEqual([2, 1]);
+      store.insertInOrder(5, 99);
+      expect(store.agentOrder).toEqual([2, 1, 5]);
+      store.insertInOrder(6, -1);
+      expect(store.agentOrder).toEqual([2, 1, 5, 6]);
+    });
+
+    it('persist writes the order; setAdapter loads it', () => {
+      const adapter = createMockAdapter();
+      store.setAdapter(adapter);
+      store.set(4, createTestAgent({ id: 4 }));
+      store.set(3, createTestAgent({ id: 3 }));
+      store.persist();
+      const second = new AgentStateStore();
+      second.setAdapter(adapter);
+      expect(second.agentOrder).toEqual([4, 3]);
+    });
+
+    it('agentAdded passes the extra through', () => {
+      const seen: unknown[] = [];
+      store.on('agentAdded', (_id, _agent, extra) => seen.push(extra));
+      store.set(1, createTestAgent({ id: 1 }), { seatId: 'chair-2', restored: true });
+      store.set(2, createTestAgent({ id: 2 }));
+      expect(seen).toEqual([{ seatId: 'chair-2', restored: true }, undefined]);
     });
   });
 });

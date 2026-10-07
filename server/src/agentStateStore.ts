@@ -29,9 +29,16 @@ function debugLogBroadcast(message: Record<string, unknown>): void {
   }
 }
 
+/** Optional detail riding on agentAdded: set by undo/restore so the single
+ *  agentCreated the client sees carries the seat to re-take. */
+export interface AgentAddedExtra {
+  seatId?: string;
+  restored?: boolean;
+}
+
 /** Typed event map for AgentStateStore. */
 export interface StoreEvents {
-  agentAdded: (id: number, agent: AgentState) => void;
+  agentAdded: (id: number, agent: AgentState, extra?: AgentAddedExtra) => void;
   agentRemoved: (id: number) => void;
   agentUpdated: (id: number, agent: AgentState, field: string) => void;
   broadcast: (message: Record<string, unknown>) => void;
@@ -48,11 +55,56 @@ export class AgentStateStore {
   readonly nextAgentId = { current: 1 };
   readonly nextTerminalIndex = { current: 1 };
   private adapter: StateAdapter | undefined;
+  /** Rail order: top-level agent ids, top to bottom. May hold stale ids; readers filter. */
+  private order: number[] = [];
 
   // ── Adapter ──────────────────────────────────────────────────
 
   setAdapter(adapter: StateAdapter): void {
     this.adapter = adapter;
+    this.order = adapter.loadAgentOrder();
+  }
+
+  // ── Rail order ──────────────────────────────────────────────
+
+  get agentOrder(): number[] {
+    return [...this.order];
+  }
+
+  private static isTopLevel(agent: AgentState): boolean {
+    return agent.leadAgentId === undefined && !agent.spawnToolUseId;
+  }
+
+  /** Apply a client-supplied order: keep known top-level ids (first occurrence),
+   *  append current top-level agents the client omitted, persist. */
+  reorder(order: number[]): number[] {
+    const current = [...this.agents.values()].filter(AgentStateStore.isTopLevel).map((a) => a.id);
+    const currentSet = new Set(current);
+    const next: number[] = [];
+    for (const id of order) {
+      if (currentSet.has(id) && !next.includes(id)) next.push(id);
+    }
+    for (const id of current) if (!next.includes(id)) next.push(id);
+    this.order = next;
+    this.saveOrder();
+    return this.agentOrder;
+  }
+
+  /** Negative index = unknown position = append (a Closed record whose rail
+   *  index was never known must not jump to the top on restore). */
+  insertInOrder(id: number, index: number): void {
+    this.order = this.order.filter((v) => v !== id);
+    const at = index < 0 ? this.order.length : Math.min(index, this.order.length);
+    this.order.splice(at, 0, id);
+    this.saveOrder();
+  }
+
+  private saveOrder(): void {
+    try {
+      this.adapter?.saveAgentOrder(this.order);
+    } catch (err) {
+      console.error('[Pixel Agents] Failed to save agent order:', err);
+    }
   }
 
   getAdapter(): StateAdapter | undefined {
@@ -110,11 +162,15 @@ export class AgentStateStore {
 
   // ── Map-compatible write (emits events) ─────────────────────
 
-  set(id: number, agent: AgentState): this {
+  set(id: number, agent: AgentState, extra?: AgentAddedExtra): this {
     const isNew = !this.agents.has(id);
     this.agents.set(id, agent);
     if (isNew) {
-      this.emitter.emit('agentAdded', id, agent);
+      if (AgentStateStore.isTopLevel(agent) && !this.order.includes(id)) this.order.push(id);
+      // No trailing undefined on the plain path: the event shape every
+      // existing listener sees is unchanged.
+      if (extra) this.emitter.emit('agentAdded', id, agent, extra);
+      else this.emitter.emit('agentAdded', id, agent);
     }
     return this;
   }
@@ -122,6 +178,7 @@ export class AgentStateStore {
   delete(id: number): boolean {
     const existed = this.agents.delete(id);
     if (existed) {
+      this.order = this.order.filter((v) => v !== id);
       this.emitter.emit('agentRemoved', id);
     }
     return existed;
@@ -180,6 +237,7 @@ export class AgentStateStore {
       });
     }
     this.adapter.saveAgents(persisted);
+    this.saveOrder();
   }
 
   loadPersistedAgents(): PersistedAgent[] {
