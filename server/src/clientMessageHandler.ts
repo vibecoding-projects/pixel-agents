@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+import type * as vscode from 'vscode';
+
 import type { HookProvider } from '../../core/src/provider.js';
 import { resendAgentActivity, resendAgentActivityFor } from './agentActivityResend.js';
 import { agentCreatedMessage } from './agentCreatedMessage.js';
@@ -15,18 +18,26 @@ import {
 import {
   AGENT_TITLE_MAX_LEN,
   CLOSE_GRACE_MS,
+  DEFAULT_MAX_CONTEXT_TOKENS,
   HUE_SHIFT_MAX_DEG,
   PALETTE_COUNT,
   RECENT_AGENT_FOLDERS_MAX,
 } from './constants.js';
-import { launchAgentStandalone, resolveDefaultCwd } from './launchAgentStandalone.js';
+import { startFileWatching } from './fileWatcher.js';
+import {
+  launchAgentStandalone,
+  resolveDefaultCwd,
+  startTranscriptPoll,
+} from './launchAgentStandalone.js';
 import { readLayoutFromFile, writeLayoutToFile } from './layoutPersistence.js';
 import { moveSessionHere } from './moveSession.js';
+import { assignPaletteIfNeeded } from './paletteAssigner.js';
 import type { ConsentEffects } from './providers/hook/consentExecutor.js';
 import { applyConsentChoice } from './providers/hook/consentExecutor.js';
 import { hooksConsentRequest } from './providers/hook/consentGate.js';
 import { claudeProvider, hookProviderById, hookProviders } from './providers/index.js';
 import { spawnResumedPty } from './spawnResumedPty.js';
+import type { AgentState } from './types.js';
 
 type WsSend = (message: Record<string, unknown>) => void;
 
@@ -164,6 +175,116 @@ export function handleClientMessage(
       if (runtime.closedSessions.remove(msg.sessionId as string)) {
         runtime.broadcastClosedSessions();
       }
+      break;
+    }
+
+    case 'restoreSession': {
+      if (!ctx.privileged || !runtime?.closedSessions || !runtime.ptyHost || !ctx.provider) break;
+      const sessionId = msg.sessionId as string;
+      const record = runtime.closedSessions.get(sessionId);
+      if (!record) break;
+      // Live again (adopted from outside, resumed elsewhere): a second --resume
+      // would fork the transcript. Drop the record instead. (agentAdded →
+      // dropMatching normally catches this first; belt and braces.)
+      const live = [...store.values()].some(
+        (a) => a.sessionId === record.sessionId || a.jsonlFile === record.jsonlFile,
+      );
+      runtime.closedSessions.remove(sessionId);
+      runtime.broadcastClosedSessions();
+      if (live) break;
+
+      // Never reuse the old id: the webview, the seats file and shadow stores
+      // all key on it, and a stale tab may still hold it.
+      const id = store.nextAgentId.current++;
+      const agent: AgentState = {
+        id,
+        sessionId: record.sessionId,
+        terminalRef: { name: record.terminalName } as vscode.Terminal,
+        isExternal: false,
+        projectDir: record.projectDir,
+        jsonlFile: record.jsonlFile,
+        fileOffset: 0,
+        lineBuffer: '',
+        activeToolIds: new Set(),
+        activeToolStatuses: new Map(),
+        activeToolNames: new Map(),
+        activeSubagentToolIds: new Map(),
+        activeSubagentToolNames: new Map(),
+        backgroundAgentToolIds: new Set(),
+        isWaiting: false,
+        permissionSent: false,
+        hadToolsInTurn: false,
+        lastDataAt: 0,
+        linesProcessed: 0,
+        seenUnknownRecordTypes: new Set(),
+        hookDelivered: false,
+        contextTokens: 0,
+        maxContextTokens: DEFAULT_MAX_CONTEXT_TOKENS,
+        palette: record.palette,
+        hueShift: record.hueShift,
+        ptyBacked: true,
+        customTitle: record.customTitle,
+        spawnCwd: record.spawnCwd,
+        bypassPermissions: record.bypassPermissions,
+      };
+      assignPaletteIfNeeded(agent, store);
+      runtime.knownJsonlFiles.add(record.jsonlFile);
+      runtime.registerAgent(agent.sessionId, id);
+      // ONE agentCreated, carrying the seat to re-take (store.set → agentAdded).
+      store.set(id, agent, { seatId: record.seatId, restored: true });
+
+      let hasTranscript = false;
+      try {
+        agent.fileOffset = fs.statSync(record.jsonlFile).size;
+        hasTranscript = true;
+      } catch {
+        /* transcript gone: poll for the fresh one below */
+      }
+      if (hasTranscript) {
+        startFileWatching(
+          id,
+          record.jsonlFile,
+          store,
+          runtime.fileWatchers,
+          runtime.pollingTimers,
+          runtime.waitingTimers,
+          runtime.permissionTimers,
+        );
+      } else {
+        startTranscriptPoll(id, agent, record.projectDir, store, runtime);
+      }
+
+      // A failed spawn must not throw out of the dispatcher: the record is
+      // already gone, so leave the agent as a STOPPED pty (crash glyph +
+      // Restart) — the transcript is untouched and the user has a way forward.
+      try {
+        spawnResumedPty(agent, {
+          store,
+          runtime,
+          provider: ctx.provider,
+          launchCwd: ctx.launchCwd,
+        });
+      } catch (err) {
+        console.error(`[Pixel Agents] Restore of ${sessionId} failed to spawn:`, err);
+        runtime.ptyHost.markStopped(id, { code: 1 });
+        store.broadcast({ type: 'agentCrashed', id, code: 1 });
+      }
+
+      store.insertInOrder(id, record.railIndex);
+      store.broadcast({ type: 'agentOrder', order: store.agentOrder });
+
+      if (record.seatId && adapter) {
+        const seats = adapter.loadSeats();
+        seats[String(id)] = {
+          ...seats[String(id)],
+          palette: agent.palette,
+          hueShift: agent.hueShift,
+          seatId: record.seatId,
+        };
+        adapter.saveSeats(seats);
+      }
+      store.persist();
+      console.log(`[Pixel Agents] Restored closed session ${sessionId} as agent ${id}`);
       break;
     }
 
