@@ -60,6 +60,9 @@ export const BUTTON_LINE_WIDTH_ZOOM_FACTOR = 0.5;
 export const BUBBLE_FADE_DURATION_SEC = 0.5;
 export const BUBBLE_SITTING_OFFSET_PX = 10;
 export const BUBBLE_VERTICAL_OFFSET_PX = 24;
+/** Approval marker bob: whole sprite pixels of vertical travel, and cycles per second. */
+export const APPROVAL_MARKER_BOB_AMPLITUDE_PX = 2;
+export const APPROVAL_MARKER_BOB_HZ = 1.5;
 export const FALLBACK_FLOOR_COLOR = '#808080';
 
 // ── Rendering - Overlay Colors (canvas, not CSS) ─────────────

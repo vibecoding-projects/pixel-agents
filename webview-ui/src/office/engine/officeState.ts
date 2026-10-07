@@ -1281,13 +1281,16 @@ export class OfficeState {
         ),
       );
 
-      // Tick bubble timer for waiting bubbles
+      // Tick bubble timers: the waiting checkmark counts DOWN to its fade-out;
+      // the approval marker counts UP so the renderer can bob it.
       if (ch.bubbleType === 'waiting') {
         ch.bubbleTimer -= dt;
         if (ch.bubbleTimer <= 0) {
           ch.bubbleType = null;
           ch.bubbleTimer = 0;
         }
+      } else if (ch.bubbleType === 'permission') {
+        ch.bubbleTimer += dt;
       }
     }
     // Remove characters that finished despawn

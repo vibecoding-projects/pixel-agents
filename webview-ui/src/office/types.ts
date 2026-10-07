@@ -222,7 +222,7 @@ export interface Character {
    *  false/undefined when the agent simply finished its turn (checkmark only,
    *  label falls through to idle). */
   waitingAwaitingInput?: boolean;
-  /** Countdown timer for bubble (waiting: 2→0, permission: unused) */
+  /** Bubble clock: waiting counts down 2→0 (fade-out), permission counts up (bob phase) */
   bubbleTimer: number;
   /** Timestamp (ms since epoch) when the awaiting-user latch was set, or null
    *  when not awaiting. Keeps the character seated at its work seat alongside

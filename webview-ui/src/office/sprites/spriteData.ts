@@ -4,9 +4,9 @@ import { adjustSprite } from '../colorize.js';
 import { desaturateCharacterSprites } from '../engine/desaturateSprites.js';
 import type { Direction, SpriteData } from '../types.js';
 import { Direction as Dir } from '../types.js';
-import bubblePermissionData from './bubble-permission.json';
 import bubblePetData from './bubble-pet.json';
 import bubbleWaitingData from './bubble-waiting.json';
+import markerApprovalData from './marker-approval.json';
 
 // ── Speech Bubble Sprites ───────────────────────────────────────
 
@@ -19,8 +19,8 @@ function resolveBubbleSprite(data: BubbleSpriteJson): SpriteData {
   return data.pixels.map((row) => row.map((key) => data.palette[key] ?? key));
 }
 
-/** Permission bubble: white square with "..." in amber, and a tail pointer (11x13) */
-export const BUBBLE_PERMISSION_SPRITE: SpriteData = resolveBubbleSprite(bubblePermissionData);
+/** Approval marker: amber "!" with an outline, no bubble (5x13). Bobs above the head. */
+export const APPROVAL_MARKER_SPRITE: SpriteData = resolveBubbleSprite(markerApprovalData);
 
 /** Waiting bubble: white square with green checkmark, and a tail pointer (11x13) */
 export const BUBBLE_WAITING_SPRITE: SpriteData = resolveBubbleSprite(bubbleWaitingData);

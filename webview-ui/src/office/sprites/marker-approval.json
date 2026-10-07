@@ -1,0 +1,26 @@
+{
+  "name": "marker-approval",
+  "description": "Approval marker: bold amber exclamation mark with a dark outline, no bubble (5x13). Bobs above the head while a tool waits for approval.",
+  "width": 5,
+  "height": 13,
+  "palette": {
+    "_": "",
+    "B": "#555566",
+    "A": "#CCA700"
+  },
+  "pixels": [
+    ["_", "B", "B", "B", "_"],
+    ["B", "A", "A", "A", "B"],
+    ["B", "A", "A", "A", "B"],
+    ["B", "A", "A", "A", "B"],
+    ["B", "A", "A", "A", "B"],
+    ["B", "A", "A", "A", "B"],
+    ["_", "B", "A", "B", "_"],
+    ["_", "_", "B", "_", "_"],
+    ["_", "_", "_", "_", "_"],
+    ["_", "B", "B", "B", "_"],
+    ["B", "A", "A", "A", "B"],
+    ["B", "A", "A", "A", "B"],
+    ["_", "B", "B", "B", "_"]
+  ]
+}

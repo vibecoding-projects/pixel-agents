@@ -64,8 +64,8 @@ import {
 import { getPetSprites } from '../sprites/petSpriteData.js';
 import { getCachedSprite, getOutlineSprite } from '../sprites/spriteCache.js';
 import {
+  APPROVAL_MARKER_SPRITE,
   BUBBLE_HEART_SPRITE,
-  BUBBLE_PERMISSION_SPRITE,
   BUBBLE_WAITING_SPRITE,
   getCharacterSprites,
 } from '../sprites/spriteData.js';
@@ -81,6 +81,7 @@ import type {
 } from '../types.js';
 import { CharacterState, TILE_SIZE, TileType } from '../types.js';
 import { getWallInstances, hasWallSprites, wallColorToHex } from '../wallTiles.js';
+import { approvalMarkerBobPx } from './approvalMarker.js';
 import { getCharacterSprite } from './characters.js';
 import { renderMatrixEffect } from './matrixEffect.js';
 import { getPetSpriteData } from './petEntity.js';
@@ -840,8 +841,8 @@ function renderBubbles(
     // bubble, so skip the bubble for it.
     if (ch.bubbleType === 'waiting' && ch.waitingAwaitingInput) continue;
 
-    const sprite =
-      ch.bubbleType === 'permission' ? BUBBLE_PERMISSION_SPRITE : BUBBLE_WAITING_SPRITE;
+    const isMarker = ch.bubbleType === 'permission';
+    const sprite = isMarker ? APPROVAL_MARKER_SPRITE : BUBBLE_WAITING_SPRITE;
 
     // Compute opacity: permission = full, waiting = fade in last 0.5s
     let alpha = 1.0;
@@ -854,9 +855,15 @@ function renderBubbles(
     // Character is anchored bottom-center at (ch.x, ch.y), sprite is 16x24
     // Place bubble above head with a small gap; follow sitting offset
     const sittingOff = ch.state === CharacterState.TYPE ? BUBBLE_SITTING_OFFSET_PX : 0;
+    // The approval marker bobs (whole sprite pixels) so it reads from across
+    // the office; the checkmark stays put.
+    const bob = isMarker ? approvalMarkerBobPx(ch.bubbleTimer) : 0;
     const bubbleX = Math.round(offsetX + ch.x * zoom - cached.width / 2);
     const bubbleY = Math.round(
-      offsetY + (ch.y + sittingOff - BUBBLE_VERTICAL_OFFSET_PX) * zoom - cached.height - 1 * zoom,
+      offsetY +
+        (ch.y + sittingOff - BUBBLE_VERTICAL_OFFSET_PX - bob) * zoom -
+        cached.height -
+        1 * zoom,
     );
 
     ctx.save();
