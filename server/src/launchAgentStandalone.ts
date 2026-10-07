@@ -176,6 +176,23 @@ export function launchAgentStandalone(
   // adapters/vscode/agentManager.ts, including /resume detection: if the
   // terminal starts a different session than expected, adopt the newest
   // untracked JSONL modified after this spawn.
+  startTranscriptPoll(id, agent, projectDir, store, runtime);
+
+  store.persist();
+  return id;
+}
+
+/** Wait for a freshly spawned session's transcript to appear, then start
+ *  watching it. Also detects a /resume into a different session (adopts the
+ *  newest untracked JSONL written after the spawn). Shared with
+ *  restoreSession, whose transcript may have been deleted. */
+export function startTranscriptPoll(
+  id: number,
+  agent: AgentState,
+  projectDir: string,
+  store: AgentStateStore,
+  runtime: AgentRuntime,
+): void {
   const createdAt = Date.now();
   let pollCount = 0;
   const pollTimer = setInterval(() => {
@@ -228,7 +245,4 @@ export function launchAgentStandalone(
     }
   }, JSONL_POLL_INTERVAL_MS);
   runtime.jsonlPollTimers.set(id, pollTimer);
-
-  store.persist();
-  return id;
 }

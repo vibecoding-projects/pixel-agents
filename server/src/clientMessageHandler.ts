@@ -1,6 +1,3 @@
-import * as fs from 'fs';
-import * as os from 'os';
-
 import type { HookProvider } from '../../core/src/provider.js';
 import { resendAgentActivity, resendAgentActivityFor } from './agentActivityResend.js';
 import { agentCreatedMessage } from './agentCreatedMessage.js';
@@ -20,17 +17,16 @@ import {
   CLOSE_GRACE_MS,
   HUE_SHIFT_MAX_DEG,
   PALETTE_COUNT,
-  PTY_SCROLLBACK_MAX_LINES,
   RECENT_AGENT_FOLDERS_MAX,
 } from './constants.js';
 import { launchAgentStandalone, resolveDefaultCwd } from './launchAgentStandalone.js';
 import { readLayoutFromFile, writeLayoutToFile } from './layoutPersistence.js';
-import { dirExists, moveSessionHere } from './moveSession.js';
+import { moveSessionHere } from './moveSession.js';
 import type { ConsentEffects } from './providers/hook/consentExecutor.js';
 import { applyConsentChoice } from './providers/hook/consentExecutor.js';
 import { hooksConsentRequest } from './providers/hook/consentGate.js';
 import { claudeProvider, hookProviderById, hookProviders } from './providers/index.js';
-import { ptyEnvironment } from './ptyEnv.js';
+import { spawnResumedPty } from './spawnResumedPty.js';
 
 type WsSend = (message: Record<string, unknown>) => void;
 
@@ -432,34 +428,11 @@ export function handleClientMessage(
     }
 
     case 'restartAgent': {
-      if (!ctx.privileged || !runtime?.ptyHost || !ctx.provider?.buildLaunchCommand) break;
+      if (!ctx.privileged || !runtime || !ctx.provider) break;
       const id = msg.id as number;
       const agent = store.get(id);
-      if (!agent?.ptyBacked || !agent.sessionId) break;
-      // Spawn folder → the transcript's recorded cwd (a restored agent with
-      // no persisted folder) → the CLI's launch folder.
-      const cwd =
-        [agent.spawnCwd, ctx.provider.transcriptCwd?.(agent.jsonlFile), ctx.launchCwd].find(
-          dirExists,
-        ) ?? os.homedir();
-      // stop() reaps the old worker synchronously, so its late exit is stale
-      // (silent) and start() below installs a fresh worker for the same id.
-      runtime.ptyHost.stop(id);
-      const launch = ctx.provider.buildLaunchCommand(agent.sessionId, cwd, {
-        bypassPermissions: agent.bypassPermissions,
-        // Claude refuses --session-id for an id that already has a transcript.
-        resume: fs.existsSync(agent.jsonlFile),
-      });
-      runtime.ptyHost.start(id, {
-        shell: process.env.SHELL ?? '/bin/zsh',
-        args: ['-l', '-c', [launch.command, ...launch.args].join(' ')],
-        cwd,
-        env: ptyEnvironment(process.env, launch.env),
-        cols: 80,
-        rows: 24,
-        scrollbackCapacity: PTY_SCROLLBACK_MAX_LINES,
-      });
-      store.broadcast({ type: 'agentRestarted', id });
+      if (!agent?.ptyBacked) break;
+      spawnResumedPty(agent, { store, runtime, provider: ctx.provider, launchCwd: ctx.launchCwd });
       break;
     }
 
