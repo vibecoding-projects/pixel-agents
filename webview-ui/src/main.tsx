@@ -13,6 +13,9 @@ async function main() {
     const { initBrowserMock } = await import('./browserMock.js');
     await initBrowserMock();
   }
+  // Browser tab identity: two daemons on different ports must be telling
+  // apart at a glance. VS Code webviews have no visible title.
+  if (isBrowserRuntime) document.title = `Pixel Agents · ${window.location.host}`;
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <App />

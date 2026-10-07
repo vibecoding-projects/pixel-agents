@@ -232,4 +232,15 @@ test.describe('Standalone / UI', () => {
       timeout: CONNECTION_STATE_TIMEOUT_MS,
     });
   });
+
+  test('the tab has a Pixel Agents title and a favicon @area:standalone', async ({
+    page,
+    standalone,
+  }) => {
+    await expect(page).toHaveTitle(/^Pixel Agents · /);
+    const href = await page.locator('link[rel="icon"]').getAttribute('href');
+    expect(href).toContain('favicon.png');
+    const res = await page.request.get(new URL(href!, standalone.hostUrl).toString());
+    expect(res.status()).toBe(200);
+  });
 });
