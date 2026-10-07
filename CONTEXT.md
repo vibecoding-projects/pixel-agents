@@ -65,6 +65,10 @@ The character-level visual event: a character materializing into or dissolving o
 Remove an agent from the office by user choice, without judging its session. A dismissed session is not re-adopted.
 _Avoid_: close, delete
 
+**Closed session**:
+An in-office agent whose close grace window elapsed. Not an Agent any more (no character, no process), but its transcript and identity (name, folder, seat, rail slot) are kept on the Closed list so it can be restored as a new Agent via `claude --resume`. Adopted sessions and teammates never become closed sessions.
+_Avoid_: deleted, archived, dismissed (a dismissed session is not restorable from the office)
+
 **Orphaned**:
 An agent whose transcript has been deleted, so the session it represents no longer exists. The office removes orphaned agents automatically.
 _Avoid_: stale (implies inactivity or age, which never removes an agent), dead, ended

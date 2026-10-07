@@ -53,7 +53,7 @@ server/                              Lifecycle runtime + Fastify HTTP/WS server
     teamUtils.ts                     isInlineTeammateOf, getInlineTeammates, hasInlineTeammates
     types.ts                         ServerAgentState
     constants.ts                     All timing/scanning constants
-  __tests__/                         28 Vitest files
+  __tests__/                         43 Vitest files
   manual-hook-events.http            Manual hook testing helper (REST-Client format)
 
 adapters/vscode/                     VS Code surface — composes core + server
@@ -196,8 +196,8 @@ Adding a new CLI integration is one subdirectory under `server/src/providers/hoo
 
 `core/asyncapi.yaml` is the contract. Pinned to **3.0.0** because `@asyncapi/modelina@5.10.1` declares `supportedVersions: ['3.0.0']` only; bumping to 3.1.0 produces `export type Root = any`. Revisit when Modelina ships 3.1.0 support.
 
-- **41 ServerMessage variants** (server → client): agent lifecycle (incl. `launchAgentFailed` — a refused spawn folder, sent point-to-point to the requester; `sessionMoved` / `moveSessionFailed` — an adopted session moved into an in-office pty, or refused), agent activity, sub-agent activity, team + context usage, in-office pty terminals, assets, settings + workspace, diagnostics.
-- **30 ClientMessage variants** (client → server): lifecycle (`webviewReady`, `launchAgent`, `focusAgent`, `closeAgent`, `renameAgent`), layout (`saveAgentSeats`, `saveLayout`, `exportLayout`, `importLayout`), settings (`setSoundEnabled`, `setHooksEnabled`, `setWatchAllSessions`, `setAlwaysShowLabels`, `setShowTerminalNames`, `setHooksInfoShown`, `setLastSeenVersion`), in-office pty terminals (`ptyInput`, `ptyResize`, `terminalPaneReady`, `restartAgent`, `acknowledgeCrash`, `moveSessionHere`), discovery + assets, diagnostics.
+- **44 ServerMessage variants** (server → client): agent lifecycle (incl. `launchAgentFailed` — a refused spawn folder, sent point-to-point to the requester; `sessionMoved` / `moveSessionFailed` — an adopted session moved into an in-office pty, or refused; `agentClosing` / `closedSessions` / `agentOrder` — the close grace window, the restorable Closed list and the rail order), agent activity, sub-agent activity, team + context usage, in-office pty terminals, assets, settings + workspace, diagnostics.
+- **34 ClientMessage variants** (client → server): lifecycle (`webviewReady`, `launchAgent`, `focusAgent`, `closeAgent`, `renameAgent`), layout (`saveAgentSeats`, `saveLayout`, `exportLayout`, `importLayout`), settings (`setSoundEnabled`, `setHooksEnabled`, `setWatchAllSessions`, `setAlwaysShowLabels`, `setShowTerminalNames`, `setHooksInfoShown`, `setLastSeenVersion`), in-office pty terminals (`ptyInput`, `ptyResize`, `terminalPaneReady`, `restartAgent`, `acknowledgeCrash`, `moveSessionHere`, `undoClose`, `restoreSession`, `forgetClosedSession`, `reorderAgents`), discovery + assets, diagnostics.
 
 Both unions use `oneOf` with `discriminator: type`. Every concrete message sets `additionalProperties: false`.
 
@@ -315,6 +315,8 @@ Server discovery written to `~/.pixel-agents/server.json` with `{ port, pid, aut
 
 Single dispatch point for `ClientMessage`. Each variant calls into `AgentRuntime`, `AgentStateStore`, `LayoutPersistence`, or `FileStateAdapter`, or delegates to host-specific callbacks (`onLaunchAgent`, `onOpenSessionsFolder`, `onExportLayout`, `onImportLayout`, `onSetHooksEnabled`). Both surfaces wire the same handler.
 
+**Undo close / Closed list / rail order (standalone)**: `closeAgent` is privileged and starts a server-owned grace window (`CLOSE_GRACE_MS`): `AgentState.closing` snapshots the seat, rail index and kind AT THE CLICK (a later `saveAgentSeats` no longer lists the character; a racing move must not flip the branch), the pty and watchers keep running, and `agentClosing` tells every tab to tear the character down and show the Undo toast. `undoClose` cancels it and re-announces the agent with ONE `agentCreated` (`seatId`, `restored`) built by `agentCreatedMessage.ts` — the same builder httpServer's socket emit uses — plus a per-agent `resendAgentActivityFor` (the webview dropped every message for a closing id; `existingAgents.closingAgents` lets a tab that connects mid-window still undo). `AgentRuntime.finalizeClose` is the ONLY writer of the Closed list (`closedSessions.ts`, capped at `CLOSED_SESSIONS_MAX`, persisted): in-office agents become a `ClosedSession` record and die; adopted sessions are undo-only (dismissed on begin, undismissed on undo, never recorded). `removeAgent` through any other path cancels the timer; `dispose()` finalizes closing agents BEFORE the shutdown persist. `restoreSession` re-spawns under a NEW id through `spawnResumedPty` (shared with `restartAgent`), re-inserts at the old rail index, and refuses when the session is live again (`agentAdded` → `dropMatching` also drops the record the instant any such agent appears). Rail order is `AgentStateStore.agentOrder` (top-level ids only, persisted with the agents, repaired on every `reorderAgents`); the webview sorts the rail with `sortByRailOrder` and never sorts `agents` numerically any more. Teammates and sub-agent spawns are not closable on their own.
+
 ### ServerAgentState (server/src/types.ts)
 
 Per-agent runtime data: provider reference, session key, transcript-fallback fields (`jsonlFile`, `fileOffset`, `lineBuffer`), tool state Maps and Sets, team fields (`teamName`, `agentName`, `isTeamLead`, `leadAgentId`, `teamUsesTmux`), context usage (`contextTokens`, `maxContextTokens`, `sawMainChainUsage`), and the **`hookDelivered`** flag that suppresses heuristic timers when hooks are flowing.
@@ -325,7 +327,7 @@ Per-agent runtime data: provider reference, session key, transcript-fallback fie
 ~/.pixel-agents/
   config.json              { vscode, standalone, externalAssetDirectories, hooksConsent, hooksEnabled (both per-provider) }
   vscode-state.json        { agents, seats }
-  standalone-state.json    { agents, seats }
+  standalone-state.json    { agents, seats, closedSessions, agentOrder }
   layout.json              OfficeLayout (shared across surfaces)
   server.json              { port, pid, authToken }
   hooks/claude-hook.js     Bundled hook script (CJS, shebang)
@@ -391,6 +393,8 @@ Custom ESLint rules (`eslint-rules/pixel-agents-rules.mjs`) enforce: `no-inline-
 
 **Speech bubbles**: Permission ("..." amber dots) stays until clicked/cleared. Waiting (green checkmark) auto-fades 2 s. Sprites in `spriteData.ts`.
 
+**Browser tab identity (standalone)**: `index.html` links `./favicon.png` (a copy of `icon.png`) and `main.tsx` sets the title to `Pixel Agents · <host>` in the browser runtime so two daemons are telling apart at a glance.
+
 **Sound notifications**: Ascending two-note chime (E5 → E6) via Web Audio API plays when waiting bubble appears (`agentStatus: 'waiting'`). `notificationSound.ts` manages AudioContext lifecycle; `unlockAudio()` on canvas mousedown resumes the context (webviews start suspended). Toggled via Settings modal. Persisted per-namespace in `~/.pixel-agents/config.json`.
 
 **Seats**: Derived from chair furniture. `layoutToSeats()` creates a seat at every footprint tile of every chair. Multi-tile chairs produce multiple seats keyed `uid` / `uid:1` / `uid:2`. Facing direction priority: 1) chair `orientation` from catalog (front→DOWN, back→UP, left→LEFT, right→RIGHT), 2) adjacent desk direction, 3) forward (DOWN). Work seats are CLAIMED, not owned: `Character.seatId` is the current claim (taken by `OfficeState.seatClaimStep` before each tick via `claimWorkSeat` — preferred seat → nearest free work seat in-area → unzoned → any → nearest free rest seat, each checked for reachability — and released by the FSM the moment an idle character walks away), `preferredSeatId` is the user/spawn choice and is what `saveAgentSeats` persists. With nothing free an agent waits standing at the free tile nearest the nearest desk (`seatWaitTarget`) and never types on the floor; sub-agents are untouched. Click character → select (white outline) → click available work seat → sets the preference and claims it.
@@ -453,23 +457,29 @@ Three tiers, each with its own framework.
 
 `server/__tests__/` covers the shared runtime, persistence, providers, HTTP/WebSocket server, CLI, diagnostics, asset reloads, and the e2e scenario runner. Representative suites include:
 
-| File                           | Coverage                                                                                                                                       |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agentStateStore.test.ts`      | Mutations, EventEmitter events, snapshot                                                                                                       |
-| `hookEventHandler.test.ts`     | Routing, buffering, normalized dispatch, team gating                                                                                           |
-| `sessionRouter.test.ts`        | session_id mapping, pending sessions, buffer flush                                                                                             |
-| `fileWatcherDismissal.test.ts` | DismissalTracker integration                                                                                                                   |
-| `fileStateAdapter.test.ts`     | Namespaced persistence, allowlist, settings round-trip                                                                                         |
-| `migrateVsCodeState.test.ts`   | Verify-before-clear, partial migration                                                                                                         |
-| `teamUtils.test.ts`            | Inline-teammate helpers                                                                                                                        |
-| `claudeTeamProvider.test.ts`   | Discovery, membership, metadata extraction                                                                                                     |
-| `claude.test.ts`               | `normalizeHookEvent` per Claude event, file fallback                                                                                           |
-| `claudeHookInstaller.test.ts`  | Atomic install/uninstall, unparseable-file + non-array abort, throwing writes, mode preservation, backup, hook identity, event-scope migration |
-| `consentFlow.test.ts`          | In-app consent over the wire: who is asked, what each answer writes, Back-and-revise semantics, answer serialization                           |
-| `claude-hook.test.ts`          | Spawned hook script integration (needs `dist/hooks/claude-hook.js`)                                                                            |
-| `server.test.ts`               | HTTP lifecycle, auth, `/ws`, broadcast                                                                                                         |
-| `httpServerWs.test.ts`         | `/ws` gate: standalone same-origin, embedded Bearer                                                                                            |
-| `mockClaudeRunner.test.ts`     | E2E scenario runner sanity                                                                                                                     |
+| File                                   | Coverage                                                                                                                                       |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agentStateStore.test.ts`              | Mutations, EventEmitter events, snapshot                                                                                                       |
+| `hookEventHandler.test.ts`             | Routing, buffering, normalized dispatch, team gating                                                                                           |
+| `sessionRouter.test.ts`                | session_id mapping, pending sessions, buffer flush                                                                                             |
+| `fileWatcherDismissal.test.ts`         | DismissalTracker integration                                                                                                                   |
+| `fileStateAdapter.test.ts`             | Namespaced persistence, allowlist, settings round-trip                                                                                         |
+| `migrateVsCodeState.test.ts`           | Verify-before-clear, partial migration                                                                                                         |
+| `teamUtils.test.ts`                    | Inline-teammate helpers                                                                                                                        |
+| `claudeTeamProvider.test.ts`           | Discovery, membership, metadata extraction                                                                                                     |
+| `claude.test.ts`                       | `normalizeHookEvent` per Claude event, file fallback                                                                                           |
+| `claudeHookInstaller.test.ts`          | Atomic install/uninstall, unparseable-file + non-array abort, throwing writes, mode preservation, backup, hook identity, event-scope migration |
+| `consentFlow.test.ts`                  | In-app consent over the wire: who is asked, what each answer writes, Back-and-revise semantics, answer serialization                           |
+| `claude-hook.test.ts`                  | Spawned hook script integration (needs `dist/hooks/claude-hook.js`)                                                                            |
+| `server.test.ts`                       | HTTP lifecycle, auth, `/ws`, broadcast                                                                                                         |
+| `httpServerWs.test.ts`                 | `/ws` gate: standalone same-origin, embedded Bearer                                                                                            |
+| `mockClaudeRunner.test.ts`             | E2E scenario runner sanity                                                                                                                     |
+| `closedSessions.test.ts`               | Closed list: dedupe, cap, remove, dropMatching, adapter round-trip                                                                             |
+| `agentRuntime.closeGrace.test.ts`      | Grace window on the runtime: begin/undo/finalize, other removal paths cancel the timer, dispose ordering, adoption drops the record            |
+| `clientMessageHandler.close.test.ts`   | closeAgent/undoClose/forget/reorder over the wire, seat snapshot vs seat saves, handshake fields, move refusal                                 |
+| `clientMessageHandler.restore.test.ts` | restoreSession: new id, --resume vs fresh, record dropped first, throwing spawn → stopped agent                                                |
+| `spawnResumedPty.test.ts`              | The resume-spawn path shared by restart and restore                                                                                            |
+| `agentCreatedMessage.test.ts`          | The single `agentCreated` builder keeps the historical payload shape                                                                           |
 
 Run: `npm run test:server` (or `npm test` for all).
 
