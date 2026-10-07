@@ -6,8 +6,9 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import Fastify from 'fastify';
 
 import type { HookProvider } from '../../core/src/provider.js';
+import { agentCreatedMessage } from './agentCreatedMessage.js';
 import type { AgentRuntime } from './agentRuntime.js';
-import type { AgentStateStore } from './agentStateStore.js';
+import type { AgentAddedExtra, AgentStateStore } from './agentStateStore.js';
 import type {
   AssetCache,
   ReloadAssetsSideEffect,
@@ -174,27 +175,8 @@ function registerWebSocketRoute(app: FastifyInstance, options: HttpServerOptions
     const { store } = options;
 
     // Pipe store events to WebSocket client
-    const onAgentAdded = (id: number, agent: AgentState) => {
-      safeSend(socket, {
-        type: 'agentCreated',
-        id,
-        folderName: agent.folderName,
-        isExternal: agent.isExternal || undefined,
-        isTeammate: agent.leadAgentId !== undefined || undefined,
-        teammateName: agent.agentName,
-        parentAgentId: agent.leadAgentId,
-        teamName: agent.teamName,
-        hooksOnly: agent.hooksOnly || undefined,
-        palette: agent.palette,
-        hueShift: agent.hueShift,
-        ptyBacked: agent.ptyBacked || undefined,
-        customTitle: agent.customTitle,
-        // Live AgentState has no terminalName field (that only exists on the
-        // persisted shape) — source it from terminalRef.name, the same
-        // pattern agentStateStore.ts uses when persisting. Standalone-only:
-        // VS Code's own emit site (PixelAgentsViewProvider) defers this to M2.
-        terminalName: agent.terminalRef?.name || undefined,
-      });
+    const onAgentAdded = (id: number, agent: AgentState, extra?: AgentAddedExtra) => {
+      safeSend(socket, agentCreatedMessage(id, agent, extra));
     };
 
     const onAgentRemoved = (id: number) => {
