@@ -84,6 +84,9 @@ components:
         - $ref: '#/components/schemas/AgentClosed'
         - $ref: '#/components/schemas/AgentSelected'
         - $ref: '#/components/schemas/ExistingAgents'
+        - $ref: '#/components/schemas/AgentClosing'
+        - $ref: '#/components/schemas/ClosedSessions'
+        - $ref: '#/components/schemas/AgentOrder'
         # Agent status / tool activity
         - $ref: '#/components/schemas/AgentStatus'
         - $ref: '#/components/schemas/AgentToolStart'
@@ -164,6 +167,10 @@ components:
         - $ref: '#/components/schemas/RestartAgent'
         - $ref: '#/components/schemas/MoveSessionHere'
         - $ref: '#/components/schemas/AcknowledgeCrash'
+        - $ref: '#/components/schemas/UndoClose'
+        - $ref: '#/components/schemas/RestoreSession'
+        - $ref: '#/components/schemas/ForgetClosedSession'
+        - $ref: '#/components/schemas/ReorderAgents'
       discriminator: type
 
     # ── Server message variants ────────────────────────────────────
@@ -221,6 +228,16 @@ components:
           description: >-
             Terminal display name (e.g. "Claude Code #3"). Standalone emits it
             in M1.5; VS Code defers to M2.
+        seatId:
+          type: string
+          description: >-
+            Preferred seat to re-take. Set by undoClose and restoreSession so the
+            character returns to where it sat.
+        restored:
+          type: boolean
+          description: >-
+            True when this re-creates an agent the client already saw (undo or
+            restore). The client skips the spawn effect and does not steal focus.
 
     AgentClosed:
       description: An agent has been removed from the office.
@@ -232,6 +249,69 @@ components:
           const: agentClosed
         id:
           type: integer
+
+    AgentClosing:
+      description: >-
+        An agent entered the close grace window. The character and rail entry
+        disappear now; the process stays alive for graceMs so undoClose can
+        bring it back untouched. Followed by agentClosed (window elapsed) or
+        agentCreated with restored=true (undone).
+      type: object
+      additionalProperties: false
+      required: [type, id, graceMs]
+      properties:
+        type:
+          const: agentClosing
+        id:
+          type: integer
+        graceMs:
+          type: integer
+
+    ClosedSessionSummary:
+      description: >-
+        A closed in-office session the user can restore. Paths stay server-side;
+        this carries only what the Closed list renders.
+      type: object
+      additionalProperties: false
+      required: [sessionId, terminalName, closedAt]
+      properties:
+        sessionId:
+          type: string
+        terminalName:
+          type: string
+        customTitle:
+          type: string
+        closedAt:
+          type: integer
+          description: Epoch ms when the grace window elapsed.
+
+    ClosedSessions:
+      description: The full Closed list, newest first. Sent after every change.
+      type: object
+      additionalProperties: false
+      required: [type, sessions]
+      properties:
+        type:
+          const: closedSessions
+        sessions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ClosedSessionSummary'
+
+    AgentOrder:
+      description: >-
+        Rail order for top-level agents (ids, top to bottom). Ids not listed
+        sort after it by id. Drives only the rail, never seating.
+      type: object
+      additionalProperties: false
+      required: [type, order]
+      properties:
+        type:
+          const: agentOrder
+        order:
+          type: array
+          items:
+            type: integer
 
     AgentSelected:
       description: An agent's terminal was focused (VS Code only). UI should highlight it.
@@ -301,6 +381,24 @@ components:
             server-side acknowledgement tracking. Privileged replies only —
             unprivileged clients never learn about it.
           items:
+            type: integer
+        agentOrder:
+          type: array
+          description: Rail order (see AgentOrder).
+          items:
+            type: integer
+        closedSessions:
+          type: array
+          description: The Closed list (see ClosedSessions).
+          items:
+            $ref: '#/components/schemas/ClosedSessionSummary'
+        closingAgents:
+          type: object
+          description: >-
+            Map of agent ID (string) to remaining grace ms for agents inside the
+            close window. These ids are also in `agents`; the client must tear
+            them down and show the undo toast instead of a character.
+          additionalProperties:
             type: integer
 
     AgentStatus:
@@ -1112,7 +1210,10 @@ components:
           type: integer
 
     CloseAgent:
-      description: Close (dismiss) an agent.
+      description: >-
+        Close (dismiss) an agent. In standalone this starts the close grace
+        window (agentClosing) rather than removing the agent at once.
+        Privileged only.
       type: object
       additionalProperties: false
       required: [type, id]
@@ -1121,6 +1222,56 @@ components:
           const: closeAgent
         id:
           type: integer
+
+    UndoClose:
+      description: Bring back an agent inside its close grace window. Privileged only.
+      type: object
+      additionalProperties: false
+      required: [type, id]
+      properties:
+        type:
+          const: undoClose
+        id:
+          type: integer
+
+    RestoreSession:
+      description: >-
+        Re-spawn a closed in-office session from the Closed list (claude --resume
+        on its transcript). Privileged only.
+      type: object
+      additionalProperties: false
+      required: [type, sessionId]
+      properties:
+        type:
+          const: restoreSession
+        sessionId:
+          type: string
+
+    ForgetClosedSession:
+      description: Drop an entry from the Closed list. Privileged only.
+      type: object
+      additionalProperties: false
+      required: [type, sessionId]
+      properties:
+        type:
+          const: forgetClosedSession
+        sessionId:
+          type: string
+
+    ReorderAgents:
+      description: >-
+        Set the rail order. The server keeps only current top-level ids and
+        appends any it was not told about. Privileged only.
+      type: object
+      additionalProperties: false
+      required: [type, order]
+      properties:
+        type:
+          const: reorderAgents
+        order:
+          type: array
+          items:
+            type: integer
 
     RenameAgent:
       description: >-

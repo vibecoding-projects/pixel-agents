@@ -10,7 +10,7 @@
  * interface -- it's already host-agnostic (plain fs I/O in layoutPersistence.ts).
  */
 
-import type { PersistedAgent } from './schemas.js';
+import type { ClosedSession, PersistedAgent } from './schemas.js';
 
 export interface StateAdapter {
   // ── Per-adapter persisted state (agents + seats) ────────────────────
@@ -20,6 +20,14 @@ export interface StateAdapter {
 
   loadSeats(): Record<string, { palette?: number; hueShift?: number; seatId?: string }>;
   saveSeats(seats: Record<string, { palette?: number; hueShift?: number; seatId?: string }>): void;
+
+  // ── Closed sessions + rail order (standalone; VS Code never writes them) ─
+
+  loadClosedSessions(): ClosedSession[];
+  saveClosedSessions(sessions: ClosedSession[]): void;
+
+  loadAgentOrder(): number[];
+  saveAgentOrder(order: number[]): void;
 
   // ── User-level settings (shared file, namespaced per adapter) ─────
 

@@ -136,3 +136,9 @@ export const MOVE_HANDOFF_GRACE_MS = 10_000;
  *  restart: its terminal went away (SIGHUP). Counted as abnormal so the pane
  *  offers Restart and the character shows the stopped glyph. */
 export const RESTORED_PTY_EXIT = { code: 0, signal: 'SIGHUP' } as const;
+
+// ── Undo close / Closed list ─────────────────────────────────
+/** How long a closed agent's process stays alive for undo. */
+export const CLOSE_GRACE_MS = 10_000;
+/** Max entries on the Closed (restorable sessions) list. */
+export const CLOSED_SESSIONS_MAX = 10;

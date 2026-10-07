@@ -18,7 +18,7 @@ import * as os from 'os';
 import * as path from 'path';
 
 import type { StateAdapter } from '../../core/src/adapter.js';
-import type { PersistedAgent } from '../../core/src/schemas.js';
+import type { ClosedSession, PersistedAgent } from '../../core/src/schemas.js';
 import type { AdapterSettingKey, AdapterSettings, ConfigNamespace } from './configPersistence.js';
 import { ADAPTER_SETTING_KEYS, readConfig, writeConfig } from './configPersistence.js';
 import { LAYOUT_FILE_DIR } from './constants.js';
@@ -94,6 +94,19 @@ export class FileStateAdapter implements StateAdapter {
     state.seats = seats;
     this.writeState(state);
   }
+
+  // Stubs until Task 2 round-trips these through the state file.
+  loadClosedSessions(): ClosedSession[] {
+    return [];
+  }
+
+  saveClosedSessions(_sessions: ClosedSession[]): void {}
+
+  loadAgentOrder(): number[] {
+    return [];
+  }
+
+  saveAgentOrder(_order: number[]): void {}
 
   // ── Internal state-file I/O ─────────────────────────────────
 

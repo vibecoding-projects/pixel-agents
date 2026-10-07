@@ -44,6 +44,26 @@ export interface PersistedAgent {
   bypassPermissions?: boolean;
 }
 
+/** A closed in-office session kept for restore. Persisted under
+ *  `closedSessions` in standalone-state.json. One transcript ↔ one entry.
+ *  The wire summary (`ClosedSessionSummary`) is generated into messages.ts. */
+export interface ClosedSession {
+  sessionId: string;
+  jsonlFile: string;
+  projectDir: string;
+  terminalName: string;
+  customTitle?: string;
+  spawnCwd?: string;
+  bypassPermissions?: boolean;
+  palette?: number;
+  hueShift?: number;
+  /** Seat preference at close time. */
+  seatId?: string;
+  /** Rail index at close time; restore re-inserts here (clamped; -1 = unknown). */
+  railIndex: number;
+  closedAt: number;
+}
+
 /** Agent seat assignment with visual identity
  *
  * @public

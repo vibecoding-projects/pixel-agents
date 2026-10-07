@@ -633,6 +633,10 @@ describe('background spawn persistence & derived team lifecycle', () => {
         saved.push(agents as unknown[]);
       },
       loadSeats: () => ({}),
+      loadClosedSessions: () => [],
+      saveClosedSessions: () => {},
+      loadAgentOrder: () => [],
+      saveAgentOrder: () => {},
       saveSeats: () => {},
       getSetting: <T>(_key: string, defaultValue: T) => defaultValue,
       setSetting: () => {},

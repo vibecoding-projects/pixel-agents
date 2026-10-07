@@ -105,6 +105,20 @@ export interface AgentState {
   /** Whether the pty was launched with --dangerously-skip-permissions.
    *  Restart re-applies it (v2 restartPty semantics). Runtime-only. */
   bypassPermissions?: boolean;
+  /** Set while the agent is inside the close grace window (closeAgent →
+   *  finalize/undo). A snapshot taken at the click so later churn (seat saves,
+   *  a racing move) cannot change what undo or finalize see. Runtime-only. */
+  closing?: CloseSnapshot & { since: number };
+}
+
+/** What closeAgent records at the click. */
+export interface CloseSnapshot {
+  /** Persisted seat preference at click time. */
+  seatId?: string;
+  /** Rail position at click time (-1 when unknown). */
+  railIndex: number;
+  /** Which finalize branch applies: in-office pty (record + kill) or adopted (remove only). */
+  ptyBacked: boolean;
 }
 
 export interface PersistedAgent {

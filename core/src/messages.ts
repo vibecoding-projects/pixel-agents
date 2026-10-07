@@ -13,6 +13,9 @@ export type ServerMessage =
   | AgentClosed
   | AgentSelected
   | ExistingAgents
+  | AgentClosing
+  | ClosedSessions
+  | AgentOrder
   | AgentStatus
   | AgentToolStart
   | AgentToolDone
@@ -80,7 +83,11 @@ export type ClientMessage =
   | TerminalPaneReady
   | RestartAgent
   | MoveSessionHere
-  | AcknowledgeCrash;
+  | AcknowledgeCrash
+  | UndoClose
+  | RestoreSession
+  | ForgetClosedSession
+  | ReorderAgents;
 
 export interface ProviderCapabilities {
   type: 'providerCapabilities';
@@ -98,6 +105,8 @@ export interface AgentCreated {
   ptyBacked?: boolean;
   customTitle?: string;
   terminalName?: string;
+  seatId?: string;
+  restored?: boolean;
 }
 
 export interface AgentClosed {
@@ -121,12 +130,38 @@ export interface ExistingAgents {
   terminalNames?: Record<string, string>;
   teammateAgents?: Record<string, boolean>;
   crashedAgentIds?: number[];
+  agentOrder?: number[];
+  closedSessions?: ClosedSessionSummary[];
+  closingAgents?: Record<string, number>;
 }
 
 export interface AgentSeatMeta {
   palette?: number;
   hueShift?: number;
   seatId?: string;
+}
+
+export interface ClosedSessionSummary {
+  sessionId: string;
+  terminalName: string;
+  customTitle?: string;
+  closedAt: number;
+}
+
+export interface AgentClosing {
+  type: 'agentClosing';
+  id: number;
+  graceMs: number;
+}
+
+export interface ClosedSessions {
+  type: 'closedSessions';
+  sessions: ClosedSessionSummary[];
+}
+
+export interface AgentOrder {
+  type: 'agentOrder';
+  order: number[];
 }
 
 export interface AgentStatus {
@@ -561,4 +596,24 @@ export interface MoveSessionHere {
 export interface AcknowledgeCrash {
   type: 'acknowledgeCrash';
   id: number;
+}
+
+export interface UndoClose {
+  type: 'undoClose';
+  id: number;
+}
+
+export interface RestoreSession {
+  type: 'restoreSession';
+  sessionId: string;
+}
+
+export interface ForgetClosedSession {
+  type: 'forgetClosedSession';
+  sessionId: string;
+}
+
+export interface ReorderAgents {
+  type: 'reorderAgents';
+  order: number[];
 }
