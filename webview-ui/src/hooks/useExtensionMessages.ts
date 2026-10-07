@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { HooksConsentRequest } from '../../../core/src/messages.js';
+import type { ClosedSessionSummary, HooksConsentRequest } from '../../../core/src/messages.js';
 import { MOVE_PENDING_TIMEOUT_MS } from '../constants.js';
 import { playDoneSound, playPermissionSound, setSoundEnabled } from '../notificationSound.js';
 import type { ExistingAgentMeta, PendingAgent } from '../office/engine/existingAgents.js';
@@ -154,6 +154,13 @@ interface ExtensionMessageState {
   moveErrors: Record<number, string>;
   /** Mark a move as requested (clears a previous error for that agent). */
   markMovePending: (id: number) => void;
+  /** Agents inside the close grace window: undo-toast entries, keyed by id.
+   *  `until` is when the server finalizes; `graceMs` sizes the countdown bar. */
+  closingAgents: Record<number, { until: number; graceMs: number }>;
+  /** The Closed list (restorable sessions), newest first. */
+  closedSessions: ClosedSessionSummary[];
+  /** Rail order from the server; ids not listed sort after it by id. */
+  agentOrder: number[];
 }
 
 function saveAgentSeats(os: OfficeState): void {
@@ -222,6 +229,15 @@ export function useExtensionMessages(
   }, []);
   const [customTitles, setCustomTitles] = useState<Record<number, string>>({});
   const [terminalNames, setTerminalNames] = useState<Record<number, string>>({});
+  // ── Undo close / Closed list / rail order ──
+  const [closingAgents, setClosingAgents] = useState<
+    Record<number, { until: number; graceMs: number }>
+  >({});
+  /** Synchronous mirror of closingAgents' keys: the message filter reads it
+   *  inside the handler, where React state would be stale. */
+  const closingIdsRef = useRef<Set<number>>(new Set());
+  const [closedSessions, setClosedSessions] = useState<ClosedSessionSummary[]>([]);
+  const [agentOrder, setAgentOrder] = useState<number[]>([]);
   // Per-agent pty event fan-out for xterm panes. A ref (not state): subscribers
   // attach imperatively; per-keystroke data must never re-render React.
   const ptyEventBusRef = useRef<PtyEventBus | null>(null);
@@ -264,6 +280,43 @@ export function useExtensionMessages(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const handler = (msg: any) => {
       const os = getOfficeState();
+
+      // Everything agentClosed drops. keepNames: agentClosing keeps
+      // customTitles/terminalNames so the undo toast can still label the agent.
+      const tearDownAgent = (id: number, keepNames: boolean) => {
+        setAgents((prev) => prev.filter((a) => a !== id));
+        setSelectedAgent((prev) => (prev === id ? null : prev));
+        setPtyBackedByAgent((prev) => without(prev, id));
+        if (!keepNames) {
+          setCustomTitles((prev) => without(prev, id));
+          setTerminalNames((prev) => without(prev, id));
+        }
+        ptyEventBus.remove(id);
+        clearMoveTimer(id);
+        setTeammateIds((prev) => without(prev, id));
+        setMovePending((prev) => without(prev, id));
+        setMoveErrors((prev) => without(prev, id));
+        setAgentTools((prev) => without(prev, id));
+        setAgentStatuses((prev) => without(prev, id));
+        setSubagentTools((prev) => without(prev, id));
+        // Remove all sub-agent characters belonging to this agent
+        delete backgroundParentToolIdsRef.current[id];
+        os.removeAllSubagents(id);
+        setSubagentCharacters((prev) => prev.filter((s) => s.parentAgentId !== id));
+        os.removeAgent(id);
+      };
+      const markClosing = (id: number, remainingMs: number, graceMs: number) => {
+        closingIdsRef.current.add(id);
+        setClosingAgents((prev) => ({
+          ...prev,
+          [id]: { until: Date.now() + remainingMs, graceMs },
+        }));
+      };
+      const unmarkClosing = (id: number) => {
+        if (!closingIdsRef.current.has(id)) return;
+        closingIdsRef.current.delete(id);
+        setClosingAgents((prev) => without(prev, id));
+      };
       // CI / e2e diagnostic: record every received transport message on the
       // window-side log. The fixture reads window.__pixelAgentsTestHooks.
       // messageLog and attaches as JSON so CI failures can see the exact
@@ -290,6 +343,20 @@ export function useExtensionMessages(
           readingTools: msg.readingTools,
           subagentToolNames: msg.subagentToolNames,
         });
+        return;
+      }
+
+      // A closing agent's character is gone; everything about it is dropped
+      // until agentClosed (final) or agentCreated (undo). Several handlers
+      // write React state unconditionally (tools, statuses + the done chime,
+      // context usage, renames), so this is explicit rather than implied.
+      if (
+        typeof msg.id === 'number' &&
+        closingIdsRef.current.has(msg.id) &&
+        msg.type !== 'agentClosed' &&
+        msg.type !== 'agentCreated' &&
+        msg.type !== 'agentClosing'
+      ) {
         return;
       }
 
@@ -364,6 +431,11 @@ export function useExtensionMessages(
         });
       } else if (msg.type === 'agentCreated') {
         const id = msg.id as number;
+        // Undo (same id) or restore (new id): no spawn effect, no focus steal,
+        // and the character re-takes the seat the server remembered.
+        const restored = msg.restored === true;
+        const seatId = typeof msg.seatId === 'string' ? (msg.seatId as string) : undefined;
+        unmarkClosing(id);
         if (msg.ptyBacked === true) {
           setPtyBackedByAgent((prev) => ({ ...prev, [id]: true }));
         }
@@ -382,8 +454,9 @@ export function useExtensionMessages(
         const teammateParentId = msg.parentAgentId as number | undefined;
         const teamName = msg.teamName as string | undefined;
         setAgents((prev) => (prev.includes(id) ? prev : [...prev, id]));
-        // Don't auto-select teammates (keep focus on lead)
-        if (!isTeammate) {
+        // Don't auto-select teammates (keep focus on lead), nor an agent the
+        // user already had (undo/restore).
+        if (!isTeammate && !restored) {
           setSelectedAgent(id);
         }
         if (isTeammate && teammateParentId !== undefined) {
@@ -413,7 +486,7 @@ export function useExtensionMessages(
         } else {
           const palette = msg.palette as number | undefined;
           const hueShift = msg.hueShift as number | undefined;
-          os.addAgent(id, palette, hueShift, undefined, undefined, folderName);
+          os.addAgent(id, palette, hueShift, seatId, restored, folderName);
           noteFolderName(folderName);
           if (isHeadlessAgent(msg.isExternal as boolean | undefined)) {
             os.setHeadless(id, true);
@@ -422,56 +495,30 @@ export function useExtensionMessages(
         saveAgentSeats(os);
       } else if (msg.type === 'agentClosed') {
         const id = msg.id as number;
-        setAgents((prev) => prev.filter((a) => a !== id));
-        setSelectedAgent((prev) => (prev === id ? null : prev));
-        setPtyBackedByAgent((prev) => {
-          if (!(id in prev)) return prev;
-          const next = { ...prev };
-          delete next[id];
-          return next;
-        });
-        setCustomTitles((prev) => {
-          if (!(id in prev)) return prev;
-          const next = { ...prev };
-          delete next[id];
-          return next;
-        });
-        setTerminalNames((prev) => {
-          if (!(id in prev)) return prev;
-          const next = { ...prev };
-          delete next[id];
-          return next;
-        });
-        ptyEventBus.remove(id);
-        clearMoveTimer(id);
-        setTeammateIds((prev) => without(prev, id));
-        setMovePending((prev) => without(prev, id));
-        setMoveErrors((prev) => without(prev, id));
-        setAgentTools((prev) => {
-          if (!(id in prev)) return prev;
-          const next = { ...prev };
-          delete next[id];
-          return next;
-        });
-        setAgentStatuses((prev) => {
-          if (!(id in prev)) return prev;
-          const next = { ...prev };
-          delete next[id];
-          return next;
-        });
-        setSubagentTools((prev) => {
-          if (!(id in prev)) return prev;
-          const next = { ...prev };
-          delete next[id];
-          return next;
-        });
-        // Remove all sub-agent characters belonging to this agent
-        delete backgroundParentToolIdsRef.current[id];
-        os.removeAllSubagents(id);
-        setSubagentCharacters((prev) => prev.filter((s) => s.parentAgentId !== id));
-        os.removeAgent(id);
+        unmarkClosing(id);
+        tearDownAgent(id, false);
+      } else if (msg.type === 'agentClosing') {
+        const id = msg.id as number;
+        const graceMs = msg.graceMs as number;
+        tearDownAgent(id, true);
+        markClosing(id, graceMs, graceMs);
+      } else if (msg.type === 'closedSessions') {
+        setClosedSessions((msg.sessions ?? []) as ClosedSessionSummary[]);
+      } else if (msg.type === 'agentOrder') {
+        setAgentOrder((msg.order ?? []) as number[]);
       } else if (msg.type === 'existingAgents') {
-        const incoming = msg.agents as number[];
+        // Agents inside the close grace window are not materialized at all —
+        // they get an undo toast instead (their names below still land, so the
+        // toast has a label). On a reload inside the window this is the only
+        // way the undo survives.
+        const closing = (msg.closingAgents ?? {}) as Record<string, number>;
+        const closingIds = new Set(Object.keys(closing).map(Number));
+        const incoming = (msg.agents as number[]).filter((id) => !closingIds.has(id));
+        for (const [idStr, remaining] of Object.entries(closing)) {
+          markClosing(Number(idStr), remaining, Math.max(remaining, 1));
+        }
+        setAgentOrder((msg.agentOrder ?? []) as number[]);
+        setClosedSessions((msg.closedSessions ?? []) as ClosedSessionSummary[]);
         const meta = (msg.agentMeta || {}) as Record<number, ExistingAgentMeta>;
         const folderNames = (msg.folderNames || {}) as Record<number, string>;
         const externalAgents = (msg.externalAgents || {}) as Record<number, boolean>;
@@ -541,7 +588,8 @@ export function useExtensionMessages(
               merged.push(id);
             }
           }
-          return merged.sort((a, b) => a - b);
+          // No numeric sort: the rail's order now has an owner (agentOrder).
+          return merged;
         });
       } else if (msg.type === 'agentToolStart') {
         const id = msg.id as number;
@@ -1047,6 +1095,9 @@ export function useExtensionMessages(
     teammateIds,
     movePending,
     moveErrors,
+    closingAgents,
+    closedSessions,
+    agentOrder,
     markMovePending: useCallback(
       (id: number) => {
         setMovePending((prev) => ({ ...prev, [id]: true }));
