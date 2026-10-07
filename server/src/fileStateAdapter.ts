@@ -34,9 +34,13 @@ function settingNameOf(key: string): AdapterSettingKey | null {
 interface AdapterState {
   agents: PersistedAgent[];
   seats: Record<string, { palette?: number; hueShift?: number; seatId?: string }>;
+  /** The Closed (restorable sessions) list, newest first. */
+  closedSessions: ClosedSession[];
+  /** Rail order: top-level agent ids, top to bottom. */
+  agentOrder: number[];
 }
 
-const EMPTY_STATE: AdapterState = { agents: [], seats: {} };
+const EMPTY_STATE: AdapterState = { agents: [], seats: {}, closedSessions: [], agentOrder: [] };
 
 export interface FileStateAdapterOptions {
   namespace: ConfigNamespace;
@@ -95,25 +99,34 @@ export class FileStateAdapter implements StateAdapter {
     this.writeState(state);
   }
 
-  // Stubs until Task 2 round-trips these through the state file.
+  // ── Closed sessions + rail order (same file; every write keeps the other keys) ──
+
   loadClosedSessions(): ClosedSession[] {
-    return [];
+    return this.readState().closedSessions;
   }
 
-  saveClosedSessions(_sessions: ClosedSession[]): void {}
+  saveClosedSessions(sessions: ClosedSession[]): void {
+    const state = this.readState();
+    state.closedSessions = sessions;
+    this.writeState(state);
+  }
 
   loadAgentOrder(): number[] {
-    return [];
+    return this.readState().agentOrder;
   }
 
-  saveAgentOrder(_order: number[]): void {}
+  saveAgentOrder(order: number[]): void {
+    const state = this.readState();
+    state.agentOrder = order;
+    this.writeState(state);
+  }
 
   // ── Internal state-file I/O ─────────────────────────────────
 
   private readState(): AdapterState {
     try {
       if (!fs.existsSync(this.stateFilePath)) {
-        return { agents: [], seats: {} };
+        return { ...EMPTY_STATE };
       }
       const raw = fs.readFileSync(this.stateFilePath, 'utf-8');
       const parsed = JSON.parse(raw) as Partial<AdapterState>;
@@ -123,6 +136,12 @@ export class FileStateAdapter implements StateAdapter {
           parsed.seats && typeof parsed.seats === 'object'
             ? (parsed.seats as AdapterState['seats'])
             : {},
+        closedSessions: Array.isArray(parsed.closedSessions)
+          ? (parsed.closedSessions as ClosedSession[])
+          : [],
+        agentOrder: Array.isArray(parsed.agentOrder)
+          ? (parsed.agentOrder as unknown[]).filter((v): v is number => Number.isInteger(v))
+          : [],
       };
     } catch (err) {
       console.error('[Pixel Agents] Failed to read adapter state:', err);

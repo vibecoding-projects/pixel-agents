@@ -158,4 +158,55 @@ describe('FileStateAdapter', () => {
     expect(adapter.loadSeats()).toEqual({ '1': { palette: 3 } });
     expect(adapter.loadAgents()).toHaveLength(1);
   });
+
+  // ── Closed sessions + rail order ─────────────────────────────
+
+  describe('closedSessions + agentOrder', () => {
+    const record = {
+      sessionId: 'sess-a',
+      jsonlFile: '/tmp/a.jsonl',
+      projectDir: '/tmp',
+      terminalName: 'Claude Code #1',
+      railIndex: 0,
+      closedAt: 1,
+    };
+
+    it('round-trips closedSessions and agentOrder independently of agents/seats', () => {
+      const adapter = new FileStateAdapter({ namespace: 'standalone' });
+      adapter.saveClosedSessions([record]);
+      adapter.saveAgentOrder([3, 1, 2]);
+      // A later seats/agents save must not erase either key.
+      adapter.saveSeats({ '1': { seatId: 'chair-1' } });
+      adapter.saveAgents([]);
+      expect(adapter.loadClosedSessions()).toEqual([record]);
+      expect(adapter.loadAgentOrder()).toEqual([3, 1, 2]);
+      expect(adapter.loadSeats()).toEqual({ '1': { seatId: 'chair-1' } });
+    });
+
+    it('malformed values load as empty', () => {
+      const adapter = new FileStateAdapter({ namespace: 'standalone' });
+      // The file isolates via the os.homedir() mock — build the path from
+      // tempHome, never process.env.HOME (that would be the developer's real
+      // ~/.pixel-agents/standalone-state.json).
+      const file = path.join(tempHome, '.pixel-agents', 'standalone-state.json');
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(
+        file,
+        JSON.stringify({ agents: [], seats: {}, closedSessions: 'x', agentOrder: { a: 1 } }),
+      );
+      expect(adapter.loadClosedSessions()).toEqual([]);
+      expect(adapter.loadAgentOrder()).toEqual([]);
+    });
+
+    it('agentOrder keeps only integers', () => {
+      const adapter = new FileStateAdapter({ namespace: 'standalone' });
+      const file = path.join(tempHome, '.pixel-agents', 'standalone-state.json');
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(
+        file,
+        JSON.stringify({ agents: [], seats: {}, agentOrder: [1, 'x', 2.5, 3] }),
+      );
+      expect(adapter.loadAgentOrder()).toEqual([1, 3]);
+    });
+  });
 });
