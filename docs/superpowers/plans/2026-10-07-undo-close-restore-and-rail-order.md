@@ -3071,8 +3071,242 @@ git commit -m "docs: undo close, closed sessions, rail order and tab identity"
 
 ---
 
+---
+
+### Task 16: Bobbing approval marker above the head
+
+**Files:**
+
+- Create: `webview-ui/src/office/sprites/marker-approval.json`
+- Delete: `webview-ui/src/office/sprites/bubble-permission.json`
+- Modify: `webview-ui/src/office/sprites/spriteData.ts`, `webview-ui/src/office/sprites/index.ts`
+- Modify: `webview-ui/src/office/engine/renderer.ts` (`renderBubbles`)
+- Modify: `webview-ui/src/office/engine/officeState.ts` (bubble tick, ~line 1284)
+- Modify: `webview-ui/src/office/types.ts` (`bubbleTimer` doc)
+- Modify: `webview-ui/src/constants.ts`
+- Test: `webview-ui/test/approvalMarker.test.ts`
+
+**Interfaces:**
+
+- Produces `APPROVAL_MARKER_SPRITE: SpriteData` (replaces `BUBBLE_PERMISSION_SPRITE`), `approvalMarkerBobPx(elapsedSec: number): number` (pure, exported from `webview-ui/src/office/engine/approvalMarker.ts`), constants `APPROVAL_MARKER_BOB_AMPLITUDE_PX`, `APPROVAL_MARKER_BOB_HZ`.
+
+- [ ] **Step 1: Write the failing test**
+
+`webview-ui/test/approvalMarker.test.ts`:
+
+```ts
+import { describe, expect, it } from 'vitest';
+
+import { APPROVAL_MARKER_BOB_AMPLITUDE_PX, APPROVAL_MARKER_BOB_HZ } from '../src/constants.js';
+import { approvalMarkerBobPx } from '../src/office/engine/approvalMarker.js';
+import { APPROVAL_MARKER_SPRITE } from '../src/office/sprites/spriteData.js';
+
+describe('approval marker', () => {
+  it('bobs between -amplitude and +amplitude in whole sprite pixels', () => {
+    const period = 1 / APPROVAL_MARKER_BOB_HZ;
+    expect(approvalMarkerBobPx(0)).toBe(0);
+    expect(approvalMarkerBobPx(period / 4)).toBe(APPROVAL_MARKER_BOB_AMPLITUDE_PX);
+    expect(approvalMarkerBobPx((3 * period) / 4)).toBe(-APPROVAL_MARKER_BOB_AMPLITUDE_PX);
+    for (let t = 0; t < 3; t += 0.05) expect(Number.isInteger(approvalMarkerBobPx(t))).toBe(true);
+  });
+
+  it('is a 5x13 amber exclamation mark with an outline and no box', () => {
+    expect(APPROVAL_MARKER_SPRITE).toHaveLength(13);
+    for (const row of APPROVAL_MARKER_SPRITE) expect(row).toHaveLength(5);
+    const colors = new Set(APPROVAL_MARKER_SPRITE.flat().filter((c) => c !== ''));
+    expect(colors).toEqual(new Set(['#555566', '#CCA700']));
+    // Corners are transparent: it is a glyph, not a bubble.
+    expect(APPROVAL_MARKER_SPRITE[0][0]).toBe('');
+    expect(APPROVAL_MARKER_SPRITE[12][4]).toBe('');
+    // A gap row separates the stem from the dot.
+    expect(APPROVAL_MARKER_SPRITE[8].every((c) => c === '')).toBe(true);
+  });
+});
+```
+
+- [ ] **Step 2: Run to verify failure**
+
+Run: `cd webview-ui && npx vitest run test/approvalMarker.test.ts`
+Expected: FAIL — modules/exports missing.
+
+- [ ] **Step 3: Sprite**
+
+`webview-ui/src/office/sprites/marker-approval.json`:
+
+```json
+{
+  "name": "marker-approval",
+  "description": "Approval marker: bold amber exclamation mark with a dark outline, no bubble (5x13). Bobs above the head while a tool waits for approval.",
+  "width": 5,
+  "height": 13,
+  "palette": {
+    "_": "",
+    "B": "#555566",
+    "A": "#CCA700"
+  },
+  "pixels": [
+    ["_", "B", "B", "B", "_"],
+    ["B", "A", "A", "A", "B"],
+    ["B", "A", "A", "A", "B"],
+    ["B", "A", "A", "A", "B"],
+    ["B", "A", "A", "A", "B"],
+    ["B", "A", "A", "A", "B"],
+    ["_", "B", "A", "B", "_"],
+    ["_", "_", "B", "_", "_"],
+    ["_", "_", "_", "_", "_"],
+    ["_", "B", "B", "B", "_"],
+    ["B", "A", "A", "A", "B"],
+    ["B", "A", "A", "A", "B"],
+    ["_", "B", "B", "B", "_"]
+  ]
+}
+```
+
+Delete `bubble-permission.json`. In `spriteData.ts` replace the import and export:
+
+```ts
+import markerApprovalData from './marker-approval.json';
+// ...
+/** Approval marker: amber "!" with an outline, no bubble (5x13). Bobs above the head. */
+export const APPROVAL_MARKER_SPRITE: SpriteData = resolveBubbleSprite(markerApprovalData);
+```
+
+Update `sprites/index.ts` to re-export `APPROVAL_MARKER_SPRITE` in place of `BUBBLE_PERMISSION_SPRITE` (grep for any other importer: `grep -rn BUBBLE_PERMISSION_SPRITE webview-ui`).
+
+- [ ] **Step 4: Constants, bob helper, tick, renderer**
+
+`webview-ui/src/constants.ts`, next to the `BUBBLE_*` constants:
+
+```ts
+/** Approval marker bob: whole sprite pixels of vertical travel, and cycles per second. */
+export const APPROVAL_MARKER_BOB_AMPLITUDE_PX = 2;
+export const APPROVAL_MARKER_BOB_HZ = 1.5;
+```
+
+`webview-ui/src/office/engine/approvalMarker.ts`:
+
+```ts
+import { APPROVAL_MARKER_BOB_AMPLITUDE_PX, APPROVAL_MARKER_BOB_HZ } from '../../constants.js';
+
+/** Vertical offset (sprite pixels, integer so the marker stays pixel-aligned)
+ *  of the approval marker after `elapsedSec` on screen. Positive = up. */
+export function approvalMarkerBobPx(elapsedSec: number): number {
+  return Math.round(
+    Math.sin(2 * Math.PI * APPROVAL_MARKER_BOB_HZ * elapsedSec) * APPROVAL_MARKER_BOB_AMPLITUDE_PX,
+  );
+}
+```
+
+`officeState.ts` bubble tick becomes:
+
+```ts
+// Tick bubble timers: the waiting checkmark counts DOWN to its fade-out;
+// the approval marker counts UP so the renderer can bob it.
+if (ch.bubbleType === 'waiting') {
+  ch.bubbleTimer -= dt;
+  if (ch.bubbleTimer <= 0) {
+    ch.bubbleType = null;
+    ch.bubbleTimer = 0;
+  }
+} else if (ch.bubbleType === 'permission') {
+  ch.bubbleTimer += dt;
+}
+```
+
+`types.ts` line 225 doc: `/** Bubble clock: waiting counts down 2→0 (fade-out), permission counts up (bob phase) */`.
+
+`renderer.ts` `renderBubbles`: import `APPROVAL_MARKER_SPRITE` instead of `BUBBLE_PERMISSION_SPRITE`, import `approvalMarkerBobPx` from `./approvalMarker.js`, and:
+
+```ts
+const isMarker = ch.bubbleType === 'permission';
+const sprite = isMarker ? APPROVAL_MARKER_SPRITE : BUBBLE_WAITING_SPRITE;
+// ...alpha unchanged...
+const cached = getCachedSprite(sprite, zoom);
+const sittingOff = ch.state === CharacterState.TYPE ? BUBBLE_SITTING_OFFSET_PX : 0;
+const bob = isMarker ? approvalMarkerBobPx(ch.bubbleTimer) : 0;
+const bubbleX = Math.round(offsetX + ch.x * zoom - cached.width / 2);
+const bubbleY = Math.round(
+  offsetY + (ch.y + sittingOff - BUBBLE_VERTICAL_OFFSET_PX - bob) * zoom - cached.height - 1 * zoom,
+);
+```
+
+- [ ] **Step 5: Verify**
+
+Run: `cd webview-ui && npx vitest run test/approvalMarker.test.ts && cd .. && npm run check-types && npm run lint && npm run test:webview`
+Expected: PASS. Then `npm run compile` and eyeball it once in the browser with `server/manual-hook-events.http` (PreToolUse → PermissionRequest): a bobbing amber "!" above the head, visible unhovered.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add webview-ui/src/office/sprites webview-ui/src/office/engine/approvalMarker.ts webview-ui/src/office/engine/renderer.ts webview-ui/src/office/engine/officeState.ts webview-ui/src/office/types.ts webview-ui/src/constants.ts webview-ui/test/approvalMarker.test.ts
+git commit -m "feat(webview): bobbing amber approval marker above the head replaces the dots bubble"
+```
+
+---
+
+### Task 17: Overlay panel not pinned while the terminal band is open
+
+**Files:**
+
+- Modify: `webview-ui/src/office/components/ToolOverlay.tsx` (props; gates at ~185 and ~196; the `isSelected` uses at ~276-278)
+- Modify: `webview-ui/src/App.tsx` (`<ToolOverlay …>` at ~635)
+
+**Interfaces:**
+
+- `ToolOverlayProps.unpinnedAgentId: number | null` — selection does not pin this agent's panel (hover and Always Show Labels still show it).
+
+- [ ] **Step 1: ToolOverlay**
+
+Add the prop (with doc):
+
+```ts
+/** Selection does NOT pin this agent's panel (standalone: the agent whose
+ *  terminal is open in the band — the panel would cover the office the whole
+ *  time). Hover and Always Show Labels still show it; the × stays
+ *  selection-gated. */
+unpinnedAgentId: number | null;
+```
+
+Inside the map, after `const isHovered = hoveredId === id;`:
+
+```ts
+// Pinned = selection keeps the panel up. The agent whose terminal is
+// open is selected but NOT pinned.
+const isPinned = isSelected && id !== unpinnedAgentId;
+```
+
+Change the two gates:
+
+```ts
+        if (!alwaysShowOverlay && !isPinned && !isHovered) {
+          return <Fragment key={id}>{nameplate}</Fragment>;
+        }
+        // ...
+        if (isDone && !isPinned && !isHovered) {
+```
+
+Leave every other `isSelected` read as is (close button, sub detail reveal, `pointerEvents`, `opacity`, `zIndex`).
+
+- [ ] **Step 2: App**
+
+```tsx
+              unpinnedAgentId={isBrowserRuntime && terminalOpen ? focusedTerminalId : null}
+```
+
+- [ ] **Step 3: Verify**
+
+Run: `npm run check-types && npm run lint && npm run e2e -- --grep "closeAgent despawns"`
+Expected: PASS (that test runs with Always Show Labels on and a hooks-only agent, so nothing is unpinned). Manual check in the browser: click a character → band opens, the panel above it disappears when the mouse leaves; hover brings it back; clicking empty floor closes the band and the panel behaves as before.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add webview-ui/src/office/components/ToolOverlay.tsx webview-ui/src/App.tsx
+git commit -m "feat(webview): selection no longer pins the overlay panel while that agent's terminal is open"
+```
+
 ## Self-review notes
 
-- Spec coverage: grace window (T6/T7), filter + toast (T10/T11), reload inside window (T7 handshake + T10 existingAgents + e2e), Closed list + persistence (T2/T3), restore (T8/T9), rail order (T4/T7/T10/T12), favicon/title (T13), docs (T15), privilege gating (T7, `hasPrivilegedToken` gates in T11/T12), move refusal (T7), dispose ordering (T6), dropMatching on adoption (T6).
+- Spec coverage: approval marker (T16), unpinned overlay panel (T17), grace window (T6/T7), filter + toast (T10/T11), reload inside window (T7 handshake + T10 existingAgents + e2e), Closed list + persistence (T2/T3), restore (T8/T9), rail order (T4/T7/T10/T12), favicon/title (T13), docs (T15), privilege gating (T7, `hasPrivilegedToken` gates in T11/T12), move refusal (T7), dispose ordering (T6), dropMatching on adoption (T6).
 - Type consistency: `CloseSnapshot` (T1) used by `beginClose` (T6) and the handler (T7); `AgentAddedExtra` (T4) used by `agentCreatedMessage` (T5), `undoClose` (T7) and `restoreSession` (T9); `resendAgentActivityFor` (T7) only; `spawnResumedPty`/`startTranscriptPoll` (T8) consumed by T9; `sortByRailOrder` (T10) by T11.
 - Known check-points for the implementer: Modelina's generated name for `ClosedSessionSummary` (T1 step 2); `DismissalTracker` query method name (T6); the exact `agentCrashed` field names (T7); the New-agent form's name label (T14); toast `bottom` offset (T11).

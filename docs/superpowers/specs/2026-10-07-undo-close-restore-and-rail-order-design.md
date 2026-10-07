@@ -231,11 +231,30 @@ Added mid-brainstorm: the standalone tab is indistinguishable from any other tab
 - In the browser runtime only, `main.tsx` sets `document.title` to `Pixel Agents · <host>` (e.g. `Pixel Agents · localhost:3100`) so two daemons on different ports are telling apart at a glance. VS Code webviews have no visible title and are left alone.
 - Pinned by the standalone e2e `ui.spec.ts`: the page title starts with "Pixel Agents" and the favicon link resolves (HTTP 200).
 
+### Approval marker above the head
+
+Added mid-brainstorm: today a tool waiting for approval draws an 11×13 white speech bubble with three amber dots above the character. It is static and small, so the user only notices "Needs approval" by hovering the character. Replace it with a marker that reads from across the office:
+
+- A new 5×13 pixel sprite `marker-approval.json`: a bold amber (`#CCA700`, the permission status color) exclamation mark with a dark outline, no bubble box. It replaces `bubble-permission.json`; `APPROVAL_MARKER_SPRITE` replaces `BUBBLE_PERMISSION_SPRITE` everywhere (`spriteData.ts`, `sprites/index.ts`, `renderer.ts`).
+- It **bobs**: the renderer offsets it vertically by `round(sin(2π · APPROVAL_MARKER_BOB_HZ · t) · APPROVAL_MARKER_BOB_AMPLITUDE_PX)` sprite pixels, with `t` the time the marker has been showing. `Character.bubbleTimer` (documented today as "permission: unused") counts UP while `bubbleType === 'permission'` in the same tick that counts the waiting bubble down.
+- Lifecycle is unchanged: shown by `showPermissionBubble`, cleared by `clearPermissionBubble`, drawn above the head with the existing sitting offset, for leads and sub-agents alike. The green waiting checkmark is untouched.
+- Constants in `webview-ui/src/constants.ts`: `APPROVAL_MARKER_BOB_AMPLITUDE_PX = 2`, `APPROVAL_MARKER_BOB_HZ = 1.5`.
+
+### Overlay panel not pinned while the terminal is open
+
+Added mid-brainstorm: clicking a character in the standalone office selects it AND opens its terminal in the band. Selection pins the activity panel (`ToolOverlay`) above the character, so the panel stays up the whole time the terminal is open and covers the office. The user wants the office clear while they work in the terminal.
+
+- `ToolOverlay` gains `unpinnedAgentId: number | null`. The two visibility gates that today read "hovered or selected" read "hovered or (selected and not unpinned)". Everything else keyed on selection (the × close button, the sub-agent detail reveal, `pointerEvents`, z-index) keeps reading `isSelected`.
+- `App.tsx` passes `unpinnedAgentId = isBrowserRuntime && terminalOpen ? focusedTerminalId : null`. VS Code never unpins (no band), so its overlay behavior and the existing e2e helpers (`closeAgentFromOverlay`) are unchanged. Hover still shows the panel; the Always Show Labels setting still shows every panel.
+- The white selection outline on the sprite stays: it is small and it is what tells the user which character a seat click will move.
+- No e2e change expected: the standalone close-via-overlay test runs with Always Show Labels on and a hooks-only (non-pty) agent, which never opens the band.
+
 ## Out of scope
 
 - Restoring adopted outside sessions after their process has exited.
 - Undo for teammates or sub-agents.
 - A confirmation dialog on close (the undo replaces it).
 - A keyboard shortcut for undo.
+- Changing what hover or Always Show Labels do to the overlay panel.
 - Reordering characters in the office or any seat effect of rail order.
 - The VS Code adapter.
