@@ -222,6 +222,15 @@ E2E (Playwright, `e2e/tests/standalone/`), one new spec `close-undo-restore.spec
 
 CLAUDE.md: protocol variant counts, a short "Undo close / Closed list / rail order" paragraph under Server Runtime, the new persistence keys under Persistence, the new test files in the test table. CONTEXT.md gets a "Closed session" entry.
 
+### Browser tab identity (favicon + title)
+
+Added mid-brainstorm: the standalone tab is indistinguishable from any other tab today (`<title>webview-ui</title>`, a dead `/vite.svg` icon link).
+
+- `webview-ui/public/favicon.png` is a copy of the repo's `icon.png` (128×128). `index.html` links it with a `./favicon.png` href: Vite builds with `base: './'`, so the browser resolves it against the SPA root, and the VS Code provider's href rewrite (which only touches `./` paths) turns it into a harmless webview URI.
+- `<title>Pixel Agents</title>` in `index.html`.
+- In the browser runtime only, `main.tsx` sets `document.title` to `Pixel Agents · <host>` (e.g. `Pixel Agents · localhost:3100`) so two daemons on different ports are telling apart at a glance. VS Code webviews have no visible title and are left alone.
+- Pinned by the standalone e2e `ui.spec.ts`: the page title starts with "Pixel Agents" and the favicon link resolves (HTTP 200).
+
 ## Out of scope
 
 - Restoring adopted outside sessions after their process has exited.
