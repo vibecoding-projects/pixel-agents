@@ -40,7 +40,14 @@ interface AdapterState {
   agentOrder: number[];
 }
 
-const EMPTY_STATE: AdapterState = { agents: [], seats: {}, closedSessions: [], agentOrder: [] };
+/** Fresh on every call: a shared empty object would leak mutations across
+ *  readers (every store starting without a state file pushed into ONE array). */
+const emptyState = (): AdapterState => ({
+  agents: [],
+  seats: {},
+  closedSessions: [],
+  agentOrder: [],
+});
 
 export interface FileStateAdapterOptions {
   namespace: ConfigNamespace;
@@ -126,7 +133,7 @@ export class FileStateAdapter implements StateAdapter {
   private readState(): AdapterState {
     try {
       if (!fs.existsSync(this.stateFilePath)) {
-        return { ...EMPTY_STATE };
+        return emptyState();
       }
       const raw = fs.readFileSync(this.stateFilePath, 'utf-8');
       const parsed = JSON.parse(raw) as Partial<AdapterState>;
@@ -145,7 +152,7 @@ export class FileStateAdapter implements StateAdapter {
       };
     } catch (err) {
       console.error('[Pixel Agents] Failed to read adapter state:', err);
-      return { ...EMPTY_STATE };
+      return emptyState();
     }
   }
 

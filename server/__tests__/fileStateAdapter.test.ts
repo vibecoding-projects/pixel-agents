@@ -198,6 +198,16 @@ describe('FileStateAdapter', () => {
       expect(adapter.loadAgentOrder()).toEqual([]);
     });
 
+    it('a missing state file yields FRESH arrays on every read (never a shared empty)', () => {
+      const adapter = new FileStateAdapter({ namespace: 'standalone' });
+      adapter.loadAgentOrder().push(42);
+      adapter.loadClosedSessions().push(record);
+      expect(adapter.loadAgentOrder()).toEqual([]);
+      expect(adapter.loadClosedSessions()).toEqual([]);
+      const other = new FileStateAdapter({ namespace: 'vscode' });
+      expect(other.loadAgentOrder()).toEqual([]);
+    });
+
     it('agentOrder keeps only integers', () => {
       const adapter = new FileStateAdapter({ namespace: 'standalone' });
       const file = path.join(tempHome, '.pixel-agents', 'standalone-state.json');

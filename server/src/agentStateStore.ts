@@ -62,7 +62,8 @@ export class AgentStateStore {
 
   setAdapter(adapter: StateAdapter): void {
     this.adapter = adapter;
-    this.order = adapter.loadAgentOrder();
+    // Own copy: the adapter's array is never shared with anyone else.
+    this.order = [...adapter.loadAgentOrder()];
   }
 
   // ── Rail order ──────────────────────────────────────────────

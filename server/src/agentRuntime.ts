@@ -15,7 +15,8 @@ import type * as vscode from 'vscode';
 
 import type { HookProvider } from '../../core/src/provider.js';
 import type { AgentStateStore } from './agentStateStore.js';
-import { DEFAULT_MAX_CONTEXT_TOKENS, RESTORED_PTY_EXIT } from './constants.js';
+import { ClosedSessions } from './closedSessions.js';
+import { CLOSE_GRACE_MS, DEFAULT_MAX_CONTEXT_TOKENS, RESTORED_PTY_EXIT } from './constants.js';
 import { DismissalTracker } from './dismissalTracker.js';
 import {
   adoptExternalSessionFromHook,
@@ -49,7 +50,7 @@ import {
   setHookProvider,
   setTeamSwitchCallback,
 } from './transcriptParser.js';
-import type { AgentState } from './types.js';
+import type { AgentState, CloseSnapshot } from './types.js';
 
 /** Callbacks that adapters register for platform-specific behavior. */
 export interface RuntimeLifecycleCallbacks {
@@ -89,6 +90,10 @@ export class AgentRuntime {
   /** Standalone-only pty host (node-pty). Injected by the CLI adapter via
    *  setPtyHost; stays null under VS Code, where terminals are native. */
   private _ptyHost: PtyManager | null = null;
+  /** Close grace timers, keyed by agent id (closeAgent → finalizeClose). */
+  readonly closeGraceTimers = new Map<number, ReturnType<typeof setTimeout>>();
+  /** The Closed list. Created with the pty host: meaningless without one. */
+  private _closedSessions: ClosedSessions | null = null;
   /** Set for the lifetime of dispose(): removals during shutdown are NOT
    *  persisted, or the file the next daemon restores from ends up empty. */
   private disposing = false;
@@ -107,6 +112,12 @@ export class AgentRuntime {
       setTeamProvider(provider.team);
     }
     setAgentRemovalCallback((id) => this.removeAgent(id));
+    // A session that comes back by itself (adopted from outside, --resume'd in
+    // another terminal) must leave the Closed list: a Restore on it would fork
+    // the transcript.
+    store.on('agentAdded', (_id, agent) => {
+      if (this._closedSessions?.dropMatching(agent)) this.broadcastClosedSessions();
+    });
     setTeammateRemovalCallback((id) => this.removeTeammate(id, 'team-config'));
     // New-style teammates run their own sessions; registering routes their hook
     // events (PreToolUse, Stop, SessionEnd) directly to the teammate agent.
@@ -315,16 +326,97 @@ export class AgentRuntime {
   /** Inject the standalone pty host. Call before any pty-backed spawn. */
   setPtyHost(host: PtyManager): void {
     this._ptyHost = host;
+    this._closedSessions = new ClosedSessions(this.store.getAdapter());
+    this._closedSessions.load();
   }
 
   get ptyHost(): PtyManager | null {
     return this._ptyHost;
   }
 
+  // ── Close grace window ──
+
+  get closedSessions(): ClosedSessions | null {
+    return this._closedSessions;
+  }
+
+  broadcastClosedSessions(): void {
+    if (!this._closedSessions) return;
+    this.store.broadcast({ type: 'closedSessions', sessions: this._closedSessions.summaries() });
+  }
+
+  /** Start the close grace window. The process and watchers keep running;
+   *  only the timer and the snapshot change. False when the agent is unknown
+   *  or already closing. */
+  beginClose(id: number, snapshot: CloseSnapshot): boolean {
+    const agent = this.store.get(id);
+    if (!agent || agent.closing) return false;
+    agent.closing = { ...snapshot, since: Date.now() };
+    if (!snapshot.ptyBacked) {
+      // Adopted session: keep the external scanner from re-adopting it mid-window.
+      this.dismissalTracker.dismiss(agent.jsonlFile);
+    }
+    const timer = setTimeout(() => this.finalizeClose(id), CLOSE_GRACE_MS);
+    this.closeGraceTimers.set(id, timer);
+    return true;
+  }
+
+  /** Cancel the window. Returns the agent so the caller can re-announce it. */
+  undoClose(id: number): AgentState | null {
+    const agent = this.store.get(id);
+    if (!agent?.closing) return null;
+    this.clearCloseTimer(id);
+    const wasAdopted = !agent.closing.ptyBacked;
+    delete agent.closing;
+    if (wasAdopted) this.dismissalTracker.clearDismissal(agent.jsonlFile);
+    return agent;
+  }
+
+  /** The window elapsed: in-office agents become a Closed record and die;
+   *  adopted ones are simply removed (their dismissal was recorded on begin).
+   *  The ONLY writer of the Closed list. */
+  finalizeClose(id: number): void {
+    this.clearCloseTimer(id);
+    const agent = this.store.get(id);
+    if (!agent?.closing) return;
+    const snap = agent.closing;
+    if (snap.ptyBacked && this._closedSessions) {
+      this._closedSessions.push({
+        sessionId: agent.sessionId,
+        jsonlFile: agent.jsonlFile,
+        projectDir: agent.projectDir,
+        terminalName: agent.terminalRef?.name ?? '',
+        customTitle: agent.customTitle,
+        spawnCwd: agent.spawnCwd,
+        bypassPermissions: agent.bypassPermissions || undefined,
+        palette: agent.palette,
+        hueShift: agent.hueShift,
+        seatId: snap.seatId,
+        railIndex: snap.railIndex < 0 ? this.store.agentOrder.indexOf(id) : snap.railIndex,
+        closedAt: Date.now(),
+      });
+      this.unregisterAgent(agent.sessionId);
+    }
+    // Parity with the old immediate close: keep any scan path from re-adopting
+    // the dying process's last JSONL flush (which would drop the record via
+    // dropMatching).
+    this.dismissalTracker.dismiss(agent.jsonlFile);
+    this.removeAgent(id);
+    if (snap.ptyBacked) this.broadcastClosedSessions();
+  }
+
+  private clearCloseTimer(id: number): void {
+    const t = this.closeGraceTimers.get(id);
+    if (t !== undefined) clearTimeout(t);
+    this.closeGraceTimers.delete(id);
+  }
+
   /** Remove an agent: stop watchers, cancel timers, delete from store. */
   removeAgent(id: number): void {
     const agent = this.store.get(id);
     if (!agent) return;
+    // Another removal path inside the grace window must not leave an armed timer.
+    this.clearCloseTimer(id);
 
     // Kill the pty first so no output lands after teardown begins
     this._ptyHost?.stop(id);
@@ -591,6 +683,16 @@ export class AgentRuntime {
 
   /** Clean up all scanners, timers, and agents. Called on shutdown. */
   dispose(): void {
+    // Idempotent: callers (and tests) may dispose twice.
+    if (this.disposing) return;
+    // Closing agents are closed for good: record them, drop them from the
+    // list the next daemon restores, and persist ONCE before `disposing`
+    // suppresses removeAgent's own persist.
+    const closing = [...this.store.values()].filter((a) => a.closing).map((a) => a.id);
+    if (closing.length > 0) {
+      for (const id of closing) this.finalizeClose(id);
+      this.store.persist();
+    }
     this._ptyHost?.disposeAll();
     this.hookEventHandler.dispose();
     this.subagentWatch.dispose();
