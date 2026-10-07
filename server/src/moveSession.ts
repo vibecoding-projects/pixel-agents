@@ -49,6 +49,7 @@ export function moveRefusalReason(
 ): string | null {
   if (!agent) return 'Unknown agent.';
   if (agent.moveInFlight) return 'A move is already in progress.';
+  if (agent.closing) return 'This agent is closing; undo the close first.';
   if (agent.ptyBacked || !agent.isExternal) return 'This agent already runs in the office.';
   if (agent.leadAgentId !== undefined || agent.agentName || agent.spawnToolUseId) {
     return 'Teammates and sub-agents run inside their lead and cannot be moved.';

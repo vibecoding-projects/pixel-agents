@@ -2,7 +2,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 
 import type { HookProvider } from '../../core/src/provider.js';
-import { resendAgentActivity } from './agentActivityResend.js';
+import { resendAgentActivity, resendAgentActivityFor } from './agentActivityResend.js';
+import { agentCreatedMessage } from './agentCreatedMessage.js';
 import { buildAgentDiagnostics } from './agentDiagnostics.js';
 import type { AgentRuntime } from './agentRuntime.js';
 import type { AgentStateStore } from './agentStateStore.js';
@@ -16,6 +17,7 @@ import {
 } from './configPersistence.js';
 import {
   AGENT_TITLE_MAX_LEN,
+  CLOSE_GRACE_MS,
   HUE_SHIFT_MAX_DEG,
   PALETTE_COUNT,
   PTY_SCROLLBACK_MAX_LINES,
@@ -112,16 +114,68 @@ export function handleClientMessage(
       break;
 
     case 'closeAgent': {
-      // Standalone agents are always external (no terminal), so mirror the VS
-      // Code external-agent branch: dismiss the file (so the external scanner
-      // doesn't re-adopt it) then remove. removeAgent fires the agentRemoved
-      // store event, which httpServer maps to an agentClosed broadcast.
+      // Privileged: it can kill a process and now mutates durable state
+      // (Closed list, rail order) — the same bar as restartAgent.
+      if (!ctx.privileged) break;
       const id = msg.id as number;
       const agent = store.get(id);
-      if (agent && runtime) {
+      if (!agent || !runtime) break;
+      if (!runtime.ptyHost) {
+        // No pty host (the VS Code provider never routes here; tests may):
+        // today's immediate dismiss (so the external scanner doesn't re-adopt
+        // the file) + remove. removeAgent fires agentRemoved → agentClosed.
         runtime.dismissalTracker.dismiss(agent.jsonlFile);
         runtime.removeAgent(id);
+        break;
       }
+      // Teammates and spawns live inside their lead and are never closable alone.
+      if (agent.leadAgentId !== undefined || agent.spawnToolUseId) break;
+      if (agent.moveInFlight) break;
+      // Grace window: the snapshot is taken NOW — the webview's next
+      // saveAgentSeats no longer lists this character, and a racing move must
+      // not flip which finalize branch applies.
+      const seats = adapter?.loadSeats() ?? {};
+      const began = runtime.beginClose(id, {
+        seatId: seats[String(id)]?.seatId,
+        railIndex: store.agentOrder.indexOf(id),
+        ptyBacked: agent.ptyBacked === true,
+      });
+      if (began) store.broadcast({ type: 'agentClosing', id, graceMs: CLOSE_GRACE_MS });
+      break;
+    }
+
+    case 'undoClose': {
+      if (!ctx.privileged || !runtime) break;
+      const id = msg.id as number;
+      const snapshotSeat = store.get(id)?.closing?.seatId;
+      const agent = runtime.undoClose(id);
+      if (!agent) break;
+      // One agentCreated (the client treats it like a new agent), then the
+      // live state the client dropped while the id was closing.
+      store.broadcast(agentCreatedMessage(id, agent, { seatId: snapshotSeat, restored: true }));
+      resendAgentActivityFor((m) => store.broadcast(m), store, id, agent);
+      // The pty may have died inside the window; the client dropped that
+      // agentCrashed because the character was gone.
+      const exit = runtime.ptyHost?.exitInfo(id);
+      if (exit && (exit.code !== 0 || exit.signal !== undefined)) {
+        store.broadcast({ type: 'agentCrashed', id, code: exit.code, signal: exit.signal });
+      }
+      break;
+    }
+
+    case 'forgetClosedSession': {
+      if (!ctx.privileged || !runtime?.closedSessions) break;
+      if (runtime.closedSessions.remove(msg.sessionId as string)) {
+        runtime.broadcastClosedSessions();
+      }
+      break;
+    }
+
+    case 'reorderAgents': {
+      if (!ctx.privileged) break;
+      const raw = Array.isArray(msg.order) ? (msg.order as unknown[]) : [];
+      const order = store.reorder(raw.filter((v): v is number => Number.isInteger(v)));
+      store.broadcast({ type: 'agentOrder', order });
       break;
     }
 
@@ -695,6 +749,18 @@ function handleWebviewReady(send: WsSend, ctx: ClientMessageContext): void {
     customTitles,
     terminalNames,
     teammateAgents,
+    agentOrder: store.agentOrder,
+    closedSessions: runtime?.closedSessions?.summaries() ?? [],
+    // Agents inside the close grace window: the client tears them down and
+    // shows the undo toast instead of a character (remaining ms per id).
+    closingAgents: Object.fromEntries(
+      [...store]
+        .filter(([, a]) => a.closing)
+        .map(([id, a]) => [
+          String(id),
+          Math.max(0, CLOSE_GRACE_MS - (Date.now() - a.closing!.since)),
+        ]),
+    ),
   };
   // Crash-glyph reload state reaches outside what an unprivileged spectator
   // was ever told (agentCrashed itself is privileged-delivery, see

@@ -273,6 +273,9 @@ describe('moveRefusalReason', () => {
     expect(moveRefusalReason(base({ sessionId: '' }), true)).toBeTruthy();
     expect(moveRefusalReason(base({}), false)).toBeTruthy();
     expect(moveRefusalReason(base({ moveInFlight: true }), true)).toBeTruthy();
+    expect(
+      moveRefusalReason(base({ closing: { since: 0, railIndex: 0, ptyBacked: false } }), true),
+    ).toMatch(/closing/i);
   });
   it('refuses a lead that still has inline teammates (SIGTERM would kill them too)', () => {
     expect(moveRefusalReason(base({ isTeamLead: true }), true, true)).toBeTruthy();
