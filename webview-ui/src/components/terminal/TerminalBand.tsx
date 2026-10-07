@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import type { ClosedSessionSummary } from '../../../../core/src/messages.js';
 import {
   TERMINAL_BAND_HANDLE_THICKNESS_PX,
   TERMINAL_BAND_MIN_HEIGHT_PX,
@@ -31,6 +32,12 @@ interface TerminalBandProps {
   onRestartAgent: (id: number) => void;
   /** Inline rename from the rail ('' clears the title). */
   onRename: (id: number, customTitle: string) => void;
+  /** Rail reorder (drag / Alt+arrows): the new top-to-bottom id order. */
+  onReorder: (order: number[]) => void;
+  /** The Closed list rendered at the bottom of the rail. */
+  closedSessions: ClosedSessionSummary[];
+  onRestore: (sessionId: string) => void;
+  onForget: (sessionId: string) => void;
   bus: PtyEventBus;
   /** Dock side (Settings → Terminal Position). Bottom drags height; left and
    *  right drag width. TerminalPane re-fits itself via its ResizeObserver. */
@@ -49,6 +56,10 @@ export function TerminalBand({
   onClose,
   onRestartAgent,
   onRename,
+  onReorder,
+  closedSessions,
+  onRestore,
+  onForget,
   bus,
   position,
 }: TerminalBandProps) {
@@ -191,6 +202,10 @@ export function TerminalBand({
         onFocus={onFocus}
         onClose={onClose}
         onRename={onRename}
+        onReorder={onReorder}
+        closedSessions={closedSessions}
+        onRestore={onRestore}
+        onForget={onForget}
         width={railWidth}
       />
       <div

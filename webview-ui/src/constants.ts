@@ -394,3 +394,11 @@ export const SUBAGENT_LINK_COLOR = '#6b7280';
  *  is shown as failed so the placeholder never sticks at "Moving…". Must
  *  exceed the server's terminate + kill windows (5 s + 2 s) plus slop. */
 export const MOVE_PENDING_TIMEOUT_MS = 15_000;
+
+// ── Undo-close toast ─────────────────────────────────────────
+/** Countdown repaint cadence. */
+export const UNDO_TOAST_TICK_MS = 100;
+/** Distance from the office's bottom edge, clear of the bottom toolbar. */
+export const UNDO_TOAST_BOTTOM_PX = 56;
+/** How often the Closed list's "closed N ago" labels refresh. */
+export const CLOSED_LIST_CLOCK_MS = 30_000;

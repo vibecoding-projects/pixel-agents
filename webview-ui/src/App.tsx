@@ -21,6 +21,7 @@ import {
 import { TerminalBand } from './components/terminal/TerminalBand.js';
 import { Tooltip } from './components/Tooltip.js';
 import { Modal } from './components/ui/Modal.js';
+import { UndoCloseToast } from './components/UndoCloseToast.js';
 import { VersionIndicator } from './components/VersionIndicator.js';
 import { ZoomControls } from './components/ZoomControls.js';
 import { useEditorActions } from './hooks/useEditorActions.js';
@@ -37,6 +38,7 @@ import { exportLayoutToFile } from './office/layout/exportLayout.js';
 import { isRotatable } from './office/layout/furnitureCatalog.js';
 import { migrateLayoutColors } from './office/layout/layoutSerializer.js';
 import { useCharacterPtyActivity } from './office/panel/useCharacterPtyActivity.js';
+import { sortByRailOrder } from './office/railOrder.js';
 import { getPetCount } from './office/sprites/petSpriteData.js';
 import { EditTool, type OfficeLayout } from './office/types.js';
 import { hasPrivilegedToken, isBrowserRuntime, isE2E } from './runtime.js';
@@ -119,6 +121,9 @@ function App() {
     movePending,
     moveErrors,
     markMovePending,
+    closingAgents,
+    closedSessions,
+    agentOrder,
   } = useExtensionMessages(getOfficeState, editor.setLastSavedLayout, isEditDirty);
 
   // ── Standalone terminal band (browser runtime only) ──
@@ -156,7 +161,7 @@ function App() {
   // reaches its lead); sub-agents are never in `agents`.
   const railAgents = useMemo(
     () =>
-      agents
+      sortByRailOrder(agents, agentOrder)
         .filter((id) => !teammateIds[id] && !getOfficeState().subagentMeta.has(id))
         .map((id): RailAgent => ({
           id,
@@ -170,7 +175,16 @@ function App() {
           moveState: movePending[id] ? 'pending' : moveErrors[id] ? 'error' : 'idle',
           moveError: moveErrors[id],
         })),
-    [agents, teammateIds, ptyBackedByAgent, customTitles, terminalNames, movePending, moveErrors],
+    [
+      agents,
+      agentOrder,
+      teammateIds,
+      ptyBackedByAgent,
+      customTitles,
+      terminalNames,
+      movePending,
+      moveErrors,
+    ],
   );
 
   // Prune a dead terminal focus: the band falls back visually on its own,
@@ -351,6 +365,40 @@ function App() {
   const handleCloseAgent = useCallback((id: number) => {
     transport.send({ type: 'closeAgent', id });
   }, []);
+  // Undo close / Closed list / rail order — all server-owned state; the
+  // webview only asks.
+  const handleUndoClose = useCallback((id: number) => {
+    transport.send({ type: 'undoClose', id });
+  }, []);
+  const handleRestoreSession = useCallback((sessionId: string) => {
+    transport.send({ type: 'restoreSession', sessionId });
+  }, []);
+  const handleForgetClosedSession = useCallback((sessionId: string) => {
+    transport.send({ type: 'forgetClosedSession', sessionId });
+  }, []);
+  const handleReorderAgents = useCallback((order: number[]) => {
+    transport.send({ type: 'reorderAgents', order });
+  }, []);
+  // One undo toast per closing agent. Names survive agentClosing (the hook
+  // keeps customTitles/terminalNames until agentClosed) so the label holds.
+  const undoEntries = useMemo(
+    () =>
+      Object.entries(closingAgents).map(([idStr, c]) => {
+        const id = Number(idStr);
+        return {
+          id,
+          label: characterLabel({
+            customTitle: customTitles[id],
+            agentName: undefined,
+            terminalName: terminalNames[id],
+            id,
+          }),
+          until: c.until,
+          graceMs: c.graceMs,
+        };
+      }),
+    [closingAgents, customTitles, terminalNames],
+  );
 
   // An adopted session still running outside the office can be moved in by
   // clicking its character or rail entry. The server enforces the same rule
@@ -723,6 +771,10 @@ function App() {
           </div>
         </Modal>
 
+        {isBrowserRuntime && hasPrivilegedToken && undoEntries.length > 0 && (
+          <UndoCloseToast entries={undoEntries} onUndo={handleUndoClose} />
+        )}
+
         <BottomToolbar
           isEditMode={editor.isEditMode}
           onOpenClaude={editor.handleOpenClaude}
@@ -834,18 +886,25 @@ function App() {
           />
         )}
       </div>
-      {isBrowserRuntime && hasPrivilegedToken && railAgents.length > 0 && terminalOpen && (
-        <TerminalBand
-          agents={railAgents}
-          focusedId={focusedTerminalId}
-          onFocus={handleRailFocus}
-          onClose={handleCloseAgent}
-          onRestartAgent={(id) => transport.send({ type: 'restartAgent', id })}
-          onRename={handleRenameAgent}
-          bus={ptyEventBus}
-          position={panelPosition}
-        />
-      )}
+      {isBrowserRuntime &&
+        hasPrivilegedToken &&
+        (railAgents.length > 0 || closedSessions.length > 0) &&
+        terminalOpen && (
+          <TerminalBand
+            agents={railAgents}
+            focusedId={focusedTerminalId}
+            onFocus={handleRailFocus}
+            onClose={handleCloseAgent}
+            onRestartAgent={(id) => transport.send({ type: 'restartAgent', id })}
+            onRename={handleRenameAgent}
+            onReorder={handleReorderAgents}
+            closedSessions={closedSessions}
+            onRestore={handleRestoreSession}
+            onForget={handleForgetClosedSession}
+            bus={ptyEventBus}
+            position={panelPosition}
+          />
+        )}
     </div>
   );
 }
