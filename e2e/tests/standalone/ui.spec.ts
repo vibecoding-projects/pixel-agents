@@ -87,9 +87,22 @@ test.describe('Standalone / UI', () => {
 
     await closeAgentFromOverlay(page, { text: 'Reading close-agent.ts' });
 
+    // The close starts a grace window: the character goes at once (agentClosing
+    // + an Undo toast); the final agentClosed follows when the window elapses.
     await expectOverlayCount(page, 0);
     const messages = await standalone.drainMessages();
-    expect(messages.some((message) => message.type === 'agentClosed')).toBe(true);
+    expect(messages.some((message) => message.type === 'agentClosing')).toBe(true);
+    await expect(page.getByRole('button', { name: /^Undo closing/ })).toBeVisible();
+    await expect
+      .poll(
+        async () => {
+          const later = await standalone.drainMessages();
+          return later.some((message) => message.type === 'agentClosed');
+        },
+        { timeout: 15_000, message: 'agentClosed should follow once the grace window elapses' },
+      )
+      .toBe(true);
+    await expect(page.getByRole('button', { name: /^Undo closing/ })).toBeHidden();
   });
 
   test('Debug View renders JSONL diagnostics in standalone @area:standalone', async ({

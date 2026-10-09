@@ -49,6 +49,11 @@ interface ToolOverlayProps {
   customTitles?: Record<number, string>;
   /** Standalone terminal names (Task 8), shown when no customTitle is set. */
   terminalNames?: Record<number, string>;
+  /** Selection does NOT pin this agent's panel (standalone: the agent whose
+   *  terminal is open in the band — the panel would cover the office the whole
+   *  time). Hover and Always Show Labels still show it; the × stays
+   *  selection-gated. */
+  unpinnedAgentId?: number | null;
 }
 
 /** Derive a short human-readable activity string from tools/status */
@@ -104,6 +109,7 @@ export function ToolOverlay({
   showNameplates,
   customTitles,
   terminalNames,
+  unpinnedAgentId = null,
 }: ToolOverlayProps) {
   const [, setTick] = useState(0);
   useEffect(() => {
@@ -140,6 +146,9 @@ export function ToolOverlay({
 
         const isSelected = selectedId === id;
         const isHovered = hoveredId === id;
+        // Pinned = selection keeps the panel up. The agent whose terminal is
+        // open is selected but NOT pinned.
+        const isPinned = isSelected && id !== unpinnedAgentId;
         const isSub = ch.isSubagent;
 
         // Position above character
@@ -182,7 +191,7 @@ export function ToolOverlay({
 
         // Only show the panel for hovered or selected agents (unless
         // always-show is on) — the nameplate above stays either way.
-        if (!alwaysShowOverlay && !isSelected && !isHovered) {
+        if (!alwaysShowOverlay && !isPinned && !isHovered) {
           return <Fragment key={id}>{nameplate}</Fragment>;
         }
 
@@ -193,7 +202,7 @@ export function ToolOverlay({
         // panel back. When always-show is off, the early return above already
         // keeps the panel hidden for idle agents.
         const isDone = ch.bubbleType === 'waiting' && !ch.waitingAwaitingInput;
-        if (isDone && !isSelected && !isHovered) {
+        if (isDone && !isPinned && !isHovered) {
           return (
             <Fragment key={id}>
               <div

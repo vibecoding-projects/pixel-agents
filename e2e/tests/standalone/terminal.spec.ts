@@ -245,4 +245,37 @@ test.describe('Standalone / Terminal band', () => {
       timeout: SPAWN_TIMEOUT_MS,
     });
   });
+
+  test("selection does not pin the overlay panel while the agent's terminal is open @area:terminal", async ({
+    page,
+    standalone,
+  }) => {
+    await standalone.drainMessages();
+    // Dock the band on the right: at the bottom it covers the character's
+    // tile in a 720px-high viewport and a click there never reaches the canvas.
+    await setSettings(page, { terminalPosition: 'right' });
+    await spawnFromForm(page);
+    const band = page.getByTestId('terminal-band');
+    await expect(band).toBeVisible({ timeout: SPAWN_TIMEOUT_MS });
+    const nameplate = page.getByTestId('agent-nameplate');
+    await expect(nameplate).toHaveCount(1, { timeout: SPAWN_TIMEOUT_MS });
+
+    // Click the character: selects it on the canvas (the office's own
+    // selection, which pins the activity panel) and keeps the band open.
+    const np0 = (await nameplate.boundingBox())!;
+    await page.mouse.click(np0.x + np0.width / 2, np0.y - 10);
+    await expect(band).toBeVisible();
+
+    // Mouse parked over empty office: with Always Show Labels off, the
+    // selected-but-unpinned agent shows no activity panel.
+    const canvas = page.locator('canvas').first();
+    const canvasBox = (await canvas.boundingBox())!;
+    await page.mouse.move(canvasBox.x + canvasBox.width * 0.35, canvasBox.y + 60);
+    await expect(page.locator('[data-testid="agent-overlay"]')).toHaveCount(0);
+
+    // Hovering the character still brings the panel up.
+    const np = (await nameplate.boundingBox())!;
+    await page.mouse.move(np.x + np.width / 2, np.y - 10);
+    await expect(page.locator('[data-testid="agent-overlay"]')).toHaveCount(1);
+  });
 });

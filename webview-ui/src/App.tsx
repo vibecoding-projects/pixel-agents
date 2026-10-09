@@ -696,6 +696,7 @@ function App() {
               showNameplates={showNameplates && !editor.isEditMode}
               customTitles={customTitles}
               terminalNames={terminalNames}
+              unpinnedAgentId={isBrowserRuntime && terminalOpen ? focusedTerminalId : null}
             />
           </>
         ) : (
