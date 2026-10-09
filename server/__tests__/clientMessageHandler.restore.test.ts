@@ -199,6 +199,22 @@ describe('clientMessageHandler: restoreSession', () => {
     expect(starts.length).toBe(before);
   });
 
+  it('refuses through its own live check when no agentAdded ever fired for the session', () => {
+    const { host, starts } = makeFakePtyHost();
+    const ctx = makeCtx(host);
+    store.set(1, ptyAgent(1));
+    store.set(2, ptyAgent(2));
+    closeAndElapse(ctx, 1);
+    expect(runtime!.closedSessions!.list()).toHaveLength(1);
+    // An existing agent takes over the session without a store.set (no
+    // agentAdded → dropMatching never ran): the handler must still refuse.
+    store.get(2)!.sessionId = 'sess-1';
+    handleClientMessage({ type: 'restoreSession', sessionId: 'sess-1' }, send, ctx);
+    expect(starts).toHaveLength(0);
+    expect(runtime!.closedSessions!.list()).toEqual([]);
+    expect(broadcasts.at(-1)).toEqual({ type: 'closedSessions', sessions: [] });
+  });
+
   it('a missing transcript still spawns (fresh session) and polls for the file', () => {
     const { host, starts } = makeFakePtyHost();
     const ctx = makeCtx(host);

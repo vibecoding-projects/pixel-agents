@@ -40,6 +40,21 @@ interface AdapterState {
   agentOrder: number[];
 }
 
+/** Element validation for the Closed list: one junk entry (hand edit, partial
+ *  write, another build) must not throw out of every handshake. */
+function isClosedSession(v: unknown): v is ClosedSession {
+  if (!v || typeof v !== 'object') return false;
+  const r = v as Record<string, unknown>;
+  return (
+    typeof r.sessionId === 'string' &&
+    typeof r.jsonlFile === 'string' &&
+    typeof r.projectDir === 'string' &&
+    typeof r.terminalName === 'string' &&
+    Number.isInteger(r.railIndex) &&
+    typeof r.closedAt === 'number'
+  );
+}
+
 /** Fresh on every call: a shared empty object would leak mutations across
  *  readers (every store starting without a state file pushed into ONE array). */
 const emptyState = (): AdapterState => ({
@@ -144,7 +159,7 @@ export class FileStateAdapter implements StateAdapter {
             ? (parsed.seats as AdapterState['seats'])
             : {},
         closedSessions: Array.isArray(parsed.closedSessions)
-          ? (parsed.closedSessions as ClosedSession[])
+          ? (parsed.closedSessions as unknown[]).filter(isClosedSession)
           : [],
         agentOrder: Array.isArray(parsed.agentOrder)
           ? (parsed.agentOrder as unknown[]).filter((v): v is number => Number.isInteger(v))

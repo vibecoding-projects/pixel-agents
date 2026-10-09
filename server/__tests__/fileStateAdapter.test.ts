@@ -208,6 +208,21 @@ describe('FileStateAdapter', () => {
       expect(other.loadAgentOrder()).toEqual([]);
     });
 
+    it('closedSessions drops malformed elements instead of throwing later', () => {
+      const adapter = new FileStateAdapter({ namespace: 'standalone' });
+      const file = path.join(tempHome, '.pixel-agents', 'standalone-state.json');
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(
+        file,
+        JSON.stringify({
+          agents: [],
+          seats: {},
+          closedSessions: [null, 'junk', { sessionId: 42 }, { ...record, railIndex: 'x' }, record],
+        }),
+      );
+      expect(adapter.loadClosedSessions()).toEqual([record]);
+    });
+
     it('agentOrder keeps only integers', () => {
       const adapter = new FileStateAdapter({ namespace: 'standalone' });
       const file = path.join(tempHome, '.pixel-agents', 'standalone-state.json');

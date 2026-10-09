@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ClosedSessionSummary, HooksConsentRequest } from '../../../core/src/messages.js';
 import { MOVE_PENDING_TIMEOUT_MS } from '../constants.js';
 import { playDoneSound, playPermissionSound, setSoundEnabled } from '../notificationSound.js';
+import { reconcileClosingIds } from '../office/closingReconcile.js';
 import type { ExistingAgentMeta, PendingAgent } from '../office/engine/existingAgents.js';
 import { reconcileExistingAgents } from '../office/engine/existingAgents.js';
 import type { OfficeState } from '../office/engine/officeState.js';
@@ -514,6 +515,14 @@ export function useExtensionMessages(
         const closing = (msg.closingAgents ?? {}) as Record<string, number>;
         const closingIds = new Set(Object.keys(closing).map(Number));
         const incoming = (msg.agents as number[]).filter((id) => !closingIds.has(id));
+        // The handshake is authoritative both ways: drop stale marks (another
+        // tab undid, or the window elapsed while we were disconnected) and tear
+        // down agents closed while we were away (see closingReconcile.ts).
+        const reconciled = reconcileClosingIds(closingIdsRef.current, closingIds, (id) =>
+          os.characters.has(id),
+        );
+        for (const id of reconciled.unmark) unmarkClosing(id);
+        for (const id of reconciled.tearDown) tearDownAgent(id, true);
         for (const [idStr, remaining] of Object.entries(closing)) {
           markClosing(Number(idStr), remaining, Math.max(remaining, 1));
         }

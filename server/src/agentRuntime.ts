@@ -395,6 +395,11 @@ export class AgentRuntime {
         railIndex: snap.railIndex < 0 ? this.store.agentOrder.indexOf(id) : snap.railIndex,
         closedAt: Date.now(),
       });
+      // Inline teammates and shadow sub-agents live inside the lead's process;
+      // the session is unregistered here, so the SessionEnd path that normally
+      // removes them can never match. Mirror onSessionEnd.
+      this.removeTeammates(id);
+      this.subagentWatch.removeByLead(id);
       this.unregisterAgent(agent.sessionId);
     }
     // Parity with the old immediate close: keep any scan path from re-adopting

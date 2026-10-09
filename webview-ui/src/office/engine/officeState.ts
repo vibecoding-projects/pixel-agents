@@ -482,7 +482,17 @@ export class OfficeState {
     folderName?: string,
     nearAgentId?: number,
   ): void {
-    if (this.characters.has(id)) return;
+    const existing = this.characters.get(id);
+    if (existing) {
+      // Undo close inside the despawn animation: revive the same character
+      // (the greeter does the same on a StrictMode remount). Its seat was
+      // released by removeAgent; the claim step re-takes one on the next tick.
+      if (existing.matrixEffect === 'despawn') {
+        if (preferredSeatId !== undefined) existing.preferredSeatId = preferredSeatId;
+        startMatrixEffect(existing, 'spawn');
+      }
+      return;
+    }
 
     let palette: number;
     let hueShift: number;

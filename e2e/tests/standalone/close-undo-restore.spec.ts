@@ -99,6 +99,13 @@ test.describe('Standalone / Close, undo, restore', () => {
     const firstSessionId = invocationLines(standalone.mockLogFile)[0].match(/session-id=(\S+)/)![1];
 
     await page.getByRole('button', { name: 'Close Phoenix' }).click();
+    // Click empty floor inside the window: the band closes (nothing selected).
+    // Once the session lands on the Closed list the band must reopen by
+    // itself — with no character and no rail, nothing else could reach Restore.
+    const canvas = page.locator('canvas').first();
+    const canvasBox = (await canvas.boundingBox())!;
+    await page.mouse.click(canvasBox.x + canvasBox.width * 0.35, canvasBox.y + 60);
+    await expect(page.getByTestId('terminal-band')).toBeHidden();
     const restore = page.getByRole('button', { name: 'Restore Phoenix' });
     await expect(restore).toBeVisible({ timeout: AFTER_GRACE_MS });
     await expect(page.getByRole('tab')).toHaveCount(0);
@@ -113,7 +120,9 @@ test.describe('Standalone / Close, undo, restore', () => {
     await expect
       .poll(() => invocationLines(standalone.mockLogFile).length, { timeout: SPAWN_TIMEOUT_MS })
       .toBe(2);
-    expect(invocationLines(standalone.mockLogFile)[1]).toContain(`session-id=${firstSessionId}`);
+    const second = invocationLines(standalone.mockLogFile)[1];
+    expect(second).toContain(`session-id=${firstSessionId}`);
+    expect(second).toContain('--resume');
 
     // Close again, then Forget.
     await page.getByRole('button', { name: 'Close Phoenix' }).click();

@@ -187,6 +187,12 @@ function App() {
     ],
   );
 
+  // The Closed list lives in the band. When the last agent is gone and a
+  // session lands on the list, open the band or Restore is unreachable.
+  useEffect(() => {
+    if (railAgents.length === 0 && closedSessions.length > 0) setTerminalOpen(true);
+  }, [railAgents.length, closedSessions.length, setTerminalOpen]);
+
   // Prune a dead terminal focus: the band falls back visually on its own,
   // but App state (and OfficeCanvas's focusedAgentId prop) must not keep
   // pointing at a closed agent.

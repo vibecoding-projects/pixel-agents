@@ -119,6 +119,27 @@ describe('AgentRuntime close grace window', () => {
     expect(store.agentOrder).toEqual([2]);
   });
 
+  it("finalize removes a closed lead's teammates (they live inside its process)", () => {
+    runtime.setPtyHost(fakeHost().host);
+    store.set(1, makeAgent(1, { isTeamLead: true, teamName: 'team' }));
+    store.set(
+      2,
+      makeAgent(2, {
+        ptyBacked: undefined,
+        terminalRef: undefined,
+        leadAgentId: 1,
+        teamName: 'team',
+        agentName: 'worker',
+        sessionId: 'sess-2',
+      }),
+    );
+    runtime.beginClose(1, { railIndex: 0, ptyBacked: true });
+    vi.advanceTimersByTime(CLOSE_GRACE_MS);
+    expect(store.has(1)).toBe(false);
+    expect(store.has(2)).toBe(false);
+    expect(runtime.closedSessions!.list().map((r) => r.sessionId)).toEqual(['sess-1']);
+  });
+
   it('undoClose cancels the timer and clears the snapshot', () => {
     runtime.setPtyHost(fakeHost().host);
     store.set(1, makeAgent(1));
