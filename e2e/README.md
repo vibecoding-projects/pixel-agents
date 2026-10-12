@@ -310,7 +310,7 @@ This section is auto-generated. Do not edit between the markers; CI fails on dri
 - `e2e/standalone/close-undo-restore.spec.ts:35` — closing from the rail shows an Undo toast; Undo brings the agent back without a new process (Standalone / Close, undo, restore)
 - `e2e/standalone/close-undo-restore.spec.ts:62` — a reload inside the window still offers Undo (Standalone / Close, undo, restore)
 - `e2e/standalone/close-undo-restore.spec.ts:88` — after the window the session is on the Closed list; Restore resumes it; Forget drops it (Standalone / Close, undo, restore)
-- `e2e/standalone/close-undo-restore.spec.ts:126` — Alt+ArrowUp reorders the rail and the order survives a reload (Standalone / Close, undo, restore)
+- `e2e/standalone/close-undo-restore.spec.ts:135` — Alt+ArrowUp reorders the rail and the order survives a reload (Standalone / Close, undo, restore)
 - `e2e/standalone/terminal.spec.ts:35` — Terminal Position docks the band right, left, and back to bottom (Standalone / Terminal band)
 - `e2e/standalone/terminal.spec.ts:70` — the band toggles with character selection: spawn opens, floor click closes, character click reopens (Standalone / Terminal band)
 - `e2e/standalone/terminal.spec.ts:107` — the rail/pane divider drags like DevTools and persists the width (Standalone / Terminal band)
