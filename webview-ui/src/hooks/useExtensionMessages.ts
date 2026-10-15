@@ -17,6 +17,7 @@ import { setPetTemplates } from '../office/sprites/petSpriteData.js';
 import { setCharacterTemplates } from '../office/sprites/spriteData.js';
 import {
   extractToolName,
+  hasPendingPermission,
   isSubagentToolName,
   setProviderCapabilities,
 } from '../office/toolUtils.js';
@@ -659,10 +660,12 @@ export function useExtensionMessages(
         setAgentTools((prev) => {
           const list = prev[id];
           if (!list) return prev;
-          return {
-            ...prev,
-            [id]: list.map((t) => (t.toolId === toolId ? { ...t, done: true } : t)),
-          };
+          const next = list.map((t) => (t.toolId === toolId ? { ...t, done: true } : t));
+          // The approved tool ran: nothing waits for approval any more, so the
+          // canvas marker goes now rather than at the next tool or turn end.
+          // (Idempotent, so the updater's possible double call is harmless.)
+          if (!hasPendingPermission(next)) os.clearPermissionBubble(id);
+          return { ...prev, [id]: next };
         });
       } else if (msg.type === 'agentToolsClear') {
         const id = msg.id as number;

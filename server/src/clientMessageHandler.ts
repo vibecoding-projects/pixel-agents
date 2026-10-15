@@ -100,6 +100,12 @@ const KEY_HOOKS_INFO_SHOWN = 'pixel-agents.hooksInfoShown';
 const KEY_SHOW_AREAS = 'pixel-agents.showAreas';
 const KEY_RECENT_AGENT_FOLDERS = 'pixel-agents.recentAgentFolders';
 
+/** Keystrokes that answer Claude's permission dialog: Enter, a numbered
+ *  option, or y/n. Arrow keys and plain typing are not answers. */
+function isPermissionAnswer(data: string): boolean {
+  return /[\r\n]/.test(data) || /^[1-9yYnN]$/.test(data);
+}
+
 /**
  * Handle incoming ClientMessage from a WebSocket client.
  *
@@ -524,9 +530,22 @@ export function handleClientMessage(
       break;
     }
 
-    case 'ptyInput':
-      if (ctx.privileged) runtime?.ptyHost?.write(msg.id as number, msg.data as string);
+    case 'ptyInput': {
+      if (!ctx.privileged) break;
+      const id = msg.id as number;
+      const data = msg.data as string;
+      runtime?.ptyHost?.write(id, data);
+      // Answering the approval prompt in the pane (Enter, a numbered choice, y)
+      // is the earliest signal that the wait is over: no hook fires on the
+      // answer itself, PostToolUse only lands when the tool finishes, and the
+      // JSONL path is told not to clear hook-delivered permission state.
+      const agent = store.get(id);
+      if (agent?.permissionSent && isPermissionAnswer(data)) {
+        agent.permissionSent = false;
+        store.broadcast({ type: 'agentToolPermissionClear', id });
+      }
       break;
+    }
 
     case 'ptyResize':
       if (ctx.privileged)

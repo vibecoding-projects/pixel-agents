@@ -234,6 +234,34 @@ describe('clientMessageHandler: standalone pty dispatch', () => {
       expect(host.resize).toHaveBeenCalledWith(3, 120, 40);
     });
 
+    it('answering a pending approval in the pane clears the permission marker at once', () => {
+      const { host } = makeFakePtyHost();
+      const ctx = makeCtx(host);
+      const agent = createTestAgent({ id: 3, ptyBacked: true, permissionSent: true });
+      store.set(3, agent);
+      // Arrow keys / plain typing while the prompt is up: not an answer.
+      handleClientMessage({ type: 'ptyInput', id: 3, data: '\u001b[B' }, send, ctx);
+      expect(broadcasts.some((b) => b.type === 'agentToolPermissionClear')).toBe(false);
+      expect(agent.permissionSent).toBe(true);
+      // Enter (or a numbered choice / y) answers the dialog.
+      handleClientMessage({ type: 'ptyInput', id: 3, data: '\r' }, send, ctx);
+      expect(broadcasts).toContainEqual({ type: 'agentToolPermissionClear', id: 3 });
+      expect(agent.permissionSent).toBe(false);
+      expect(host.write).toHaveBeenCalledTimes(2);
+    });
+
+    it('a numbered choice also clears; keystrokes with no pending approval never broadcast', () => {
+      const { host } = makeFakePtyHost();
+      const ctx = makeCtx(host);
+      const agent = createTestAgent({ id: 3, ptyBacked: true, permissionSent: true });
+      store.set(3, agent);
+      handleClientMessage({ type: 'ptyInput', id: 3, data: '1' }, send, ctx);
+      expect(broadcasts.filter((b) => b.type === 'agentToolPermissionClear')).toHaveLength(1);
+      handleClientMessage({ type: 'ptyInput', id: 3, data: '\r' }, send, ctx);
+      expect(broadcasts.filter((b) => b.type === 'agentToolPermissionClear')).toHaveLength(1);
+      expect(host.write).toHaveBeenCalledTimes(2);
+    });
+
     it('unprivileged: ptyInput is a no-op', () => {
       const { host } = makeFakePtyHost();
       const ctx = makeCtx(host, false);

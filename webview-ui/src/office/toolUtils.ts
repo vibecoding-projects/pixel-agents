@@ -1,3 +1,5 @@
+import type { ToolActivity } from './types.js';
+
 /** Map status prefixes back to tool names for animation selection */
 const STATUS_TO_TOOL: Record<string, string> = {
   Reading: 'Read',
@@ -46,4 +48,11 @@ export function isReadingToolName(name: string | null | undefined): boolean {
 
 export function isSubagentToolName(name: string | null | undefined): boolean {
   return typeof name === 'string' && providerCaps.subagentToolNames.has(name);
+}
+
+/** True while any not-yet-done tool row is waiting for approval. Once the
+ *  approved tool has run (agentToolDone), nothing is pending any more and the
+ *  canvas marker can go — PostToolUse itself never clears it. */
+export function hasPendingPermission(list: ToolActivity[] | undefined): boolean {
+  return (list ?? []).some((t) => t.permissionWait === true && !t.done);
 }
