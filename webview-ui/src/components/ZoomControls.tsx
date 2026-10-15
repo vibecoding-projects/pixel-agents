@@ -6,6 +6,7 @@ import {
   ZOOM_LEVEL_HIDE_DELAY_MS,
   ZOOM_MAX,
   ZOOM_MIN,
+  ZOOM_STEP,
 } from '../constants.js';
 import { Button } from './ui/Button.js';
 
@@ -72,7 +73,7 @@ export function ZoomControls({ zoom, onZoomChange }: ZoomControlsProps) {
       <div className="absolute top-8 left-8 z-10 flex flex-col gap-4">
         <Button
           size="icon_lg"
-          onClick={() => onZoomChange(zoom + 1)}
+          onClick={() => onZoomChange(zoom + ZOOM_STEP)}
           disabled={maxDisabled}
           className="border-border! shadow-pixel disabled:hover:bg-btn-bg disabled:cursor-default disabled:opacity-(--btn-disabled-opacity)"
           title="Zoom in (Ctrl+Scroll)"
@@ -100,7 +101,7 @@ export function ZoomControls({ zoom, onZoomChange }: ZoomControlsProps) {
         </Button>
         <Button
           size="icon_lg"
-          onClick={() => onZoomChange(zoom - 1)}
+          onClick={() => onZoomChange(zoom - ZOOM_STEP)}
           disabled={minDisabled}
           className="border-border! shadow-pixel disabled:hover:bg-btn-bg disabled:cursor-default disabled:opacity-(--btn-disabled-opacity)"
           title="Zoom out (Ctrl+Scroll)"

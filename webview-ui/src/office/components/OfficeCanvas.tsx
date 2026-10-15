@@ -7,6 +7,7 @@ import {
   ZOOM_MAX,
   ZOOM_MIN,
   ZOOM_SCROLL_THRESHOLD,
+  ZOOM_STEP,
 } from '../../constants.js';
 import { unlockAudio } from '../../notificationSound.js';
 import { transport } from '../../transport/index.js';
@@ -23,6 +24,7 @@ import type {
 } from '../engine/renderer.js';
 import { renderFrame } from '../engine/renderer.js';
 import { getCatalogEntry, isRotatable } from '../layout/furnitureCatalog.js';
+import { scaledCanvasSize, splitZoom } from '../projection.js';
 import { EditTool, TILE_SIZE } from '../types.js';
 import { computeNormalModeCursor } from './officeCanvasCursor.js';
 
@@ -93,14 +95,29 @@ export function OfficeCanvas({
   // Zoom scroll accumulator for trackpad pinch sensitivity
   const zoomAccumulatorRef = useRef(0);
 
+  // Fractional zoom: draw at the next whole level (crisp), scale the canvas
+  // down on screen. Everything in canvas/device space uses renderZoom; the
+  // CSS transform below applies `scale`.
+  const { renderZoom, scale: viewScale } = splitZoom(zoom);
+
+  /** Device pixels of the backing store per CSS pixel of the container —
+   *  dpr / viewScale, read off the live elements so a resize mid-gesture
+   *  cannot leave a stale factor. */
+  const devicePerCss = useCallback((): number => {
+    const canvas = canvasRef.current;
+    if (!canvas) return window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    return rect.width > 0 ? canvas.width / rect.width : window.devicePixelRatio || 1;
+  }, []);
+
   // Clamp pan so the map edge can't go past a margin inside the viewport
   const clampPan = useCallback(
     (px: number, py: number): { x: number; y: number } => {
       const canvas = canvasRef.current;
       if (!canvas) return { x: px, y: py };
       const layout = officeState.getLayout();
-      const mapW = layout.cols * TILE_SIZE * zoom;
-      const mapH = layout.rows * TILE_SIZE * zoom;
+      const mapW = layout.cols * TILE_SIZE * renderZoom;
+      const mapH = layout.rows * TILE_SIZE * renderZoom;
       const marginX = canvas.width * PAN_MARGIN_FRACTION;
       const marginY = canvas.height * PAN_MARGIN_FRACTION;
       const maxPanX = mapW / 2 + canvas.width / 2 - marginX;
@@ -110,22 +127,29 @@ export function OfficeCanvas({
         y: Math.max(-maxPanY, Math.min(maxPanY, py)),
       };
     },
-    [officeState, zoom],
+    [officeState, renderZoom],
   );
 
-  // Resize canvas backing store to device pixels (no DPR transform on ctx)
+  // Resize canvas backing store to device pixels (no DPR transform on ctx).
+  // At a fractional zoom the store is 1/viewScale larger than the container
+  // and the element is scaled down to fit, so the renderer still draws whole
+  // device pixels per sprite pixel.
   const resizeCanvas = useCallback(() => {
     const canvas = canvasRef.current;
     const container = containerRef.current;
     if (!canvas || !container) return;
     const rect = container.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.round(rect.width * dpr);
-    canvas.height = Math.round(rect.height * dpr);
-    canvas.style.width = `${rect.width}px`;
-    canvas.style.height = `${rect.height}px`;
-    // No ctx.scale(dpr) — we render directly in device pixels
-  }, []);
+    canvas.width = scaledCanvasSize(rect.width, dpr, viewScale);
+    canvas.height = scaledCanvasSize(rect.height, dpr, viewScale);
+    canvas.style.width = `${rect.width / viewScale}px`;
+    canvas.style.height = `${rect.height / viewScale}px`;
+    canvas.style.transformOrigin = '0 0';
+    canvas.style.transform = viewScale === 1 ? '' : `scale(${viewScale})`;
+    // Whole levels stay pixel-perfect; half levels are smoothed, which reads
+    // better than uneven 3/4-pixel columns.
+    canvas.style.imageRendering = viewScale === 1 ? 'pixelated' : 'auto';
+  }, [viewScale]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -258,10 +282,10 @@ export function OfficeCanvas({
         const cameraFocus = followCh ?? officeState.greeterCameraTarget;
         if (cameraFocus) {
           const layout = officeState.getLayout();
-          const mapW = layout.cols * TILE_SIZE * zoom;
-          const mapH = layout.rows * TILE_SIZE * zoom;
-          const targetX = mapW / 2 - cameraFocus.x * zoom;
-          const targetY = mapH / 2 - cameraFocus.y * zoom;
+          const mapW = layout.cols * TILE_SIZE * renderZoom;
+          const mapH = layout.rows * TILE_SIZE * renderZoom;
+          const targetX = mapW / 2 - cameraFocus.x * renderZoom;
+          const targetY = mapH / 2 - cameraFocus.y * renderZoom;
           const dx = targetX - panRef.current.x;
           const dy = targetY - panRef.current.y;
           if (
@@ -297,7 +321,7 @@ export function OfficeCanvas({
           officeState.tileMap,
           officeState.furniture,
           officeState.getCharacters(),
-          zoom,
+          renderZoom,
           panRef.current.x,
           panRef.current.y,
           selectionRender,
@@ -330,7 +354,7 @@ export function OfficeCanvas({
     isEditMode,
     editorState,
     _editorTick,
-    zoom,
+    renderZoom,
     panRef,
     showAreas,
     activeAreaLabel,
@@ -342,19 +366,19 @@ export function OfficeCanvas({
       const canvas = canvasRef.current;
       if (!canvas) return null;
       const rect = canvas.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      // CSS coords relative to canvas
+      // CSS coords relative to the (scaled) canvas, i.e. the container
       const cssX = clientX - rect.left;
       const cssY = clientY - rect.top;
-      // Convert to device pixels
-      const deviceX = cssX * dpr;
-      const deviceY = cssY * dpr;
+      // Convert to backing-store device pixels (dpr and the zoom scale)
+      const factor = devicePerCss();
+      const deviceX = cssX * factor;
+      const deviceY = cssY * factor;
       // Convert to world (sprite pixel) coords
-      const worldX = (deviceX - offsetRef.current.x) / zoom;
-      const worldY = (deviceY - offsetRef.current.y) / zoom;
+      const worldX = (deviceX - offsetRef.current.x) / renderZoom;
+      const worldY = (deviceY - offsetRef.current.y) / renderZoom;
       return { worldX, worldY, screenX: cssX, screenY: cssY, deviceX, deviceY };
     },
-    [zoom],
+    [renderZoom, devicePerCss],
   );
 
   const screenToTile = useCallback(
@@ -402,9 +426,9 @@ export function OfficeCanvas({
     (e: React.MouseEvent) => {
       // Handle middle-mouse panning
       if (isPanningRef.current) {
-        const dpr = window.devicePixelRatio || 1;
-        const dx = (e.clientX - panStartRef.current.mouseX) * dpr;
-        const dy = (e.clientY - panStartRef.current.mouseY) * dpr;
+        const factor = devicePerCss();
+        const dx = (e.clientX - panStartRef.current.mouseX) * factor;
+        const dy = (e.clientY - panStartRef.current.mouseY) * factor;
         panRef.current = clampPan(panStartRef.current.panX + dx, panStartRef.current.panY + dy);
         return;
       }
@@ -538,6 +562,7 @@ export function OfficeCanvas({
       officeState.hoveredAgentId = hitId;
     },
     [
+      devicePerCss,
       officeState,
       screenToWorld,
       screenToTile,
@@ -863,7 +888,7 @@ export function OfficeCanvas({
         // Accumulate scroll delta, step zoom when threshold crossed
         zoomAccumulatorRef.current += e.deltaY;
         if (Math.abs(zoomAccumulatorRef.current) >= ZOOM_SCROLL_THRESHOLD) {
-          const delta = zoomAccumulatorRef.current < 0 ? 1 : -1;
+          const delta = zoomAccumulatorRef.current < 0 ? ZOOM_STEP : -ZOOM_STEP;
           zoomAccumulatorRef.current = 0;
           const newZoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom + delta));
           if (newZoom !== zoom) {
@@ -872,25 +897,29 @@ export function OfficeCanvas({
         }
       } else {
         // Pan via trackpad two-finger scroll or mouse wheel
-        const dpr = window.devicePixelRatio || 1;
+        const factor = devicePerCss();
         officeState.cameraFollowId = null;
         officeState.cancelGreeterCamera();
         panRef.current = clampPan(
-          panRef.current.x - e.deltaX * dpr,
-          panRef.current.y - e.deltaY * dpr,
+          panRef.current.x - e.deltaX * factor,
+          panRef.current.y - e.deltaY * factor,
         );
       }
     },
-    [zoom, onZoomChange, officeState, panRef, clampPan],
+    [zoom, onZoomChange, officeState, panRef, clampPan, devicePerCss],
   );
 
-  // Attach wheel listener with { passive: false } so preventDefault() works.
-  // React's onWheel is passive by default in modern browsers.
+  // Attach the wheel listener to the CONTAINER with { passive: false } so
+  // preventDefault() works (React's onWheel is passive). The container, not
+  // the canvas: a two-finger swipe that starts over a DOM overlay (activity
+  // panel, toast, nameplate) must still pan — and must be cancelled on its
+  // very first event, which is when the browser decides whether the gesture
+  // is a back/forward navigation.
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    canvas.addEventListener('wheel', handleWheel, { passive: false });
-    return () => canvas.removeEventListener('wheel', handleWheel);
+    const container = containerRef.current;
+    if (!container) return;
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => container.removeEventListener('wheel', handleWheel);
   }, [handleWheel]);
 
   // Prevent default middle-click browser behavior (auto-scroll)

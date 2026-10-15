@@ -278,4 +278,26 @@ test.describe('Standalone / Terminal band', () => {
     await page.mouse.move(np.x + np.width / 2, np.y - 10);
     await expect(page.locator('[data-testid="agent-overlay"]')).toHaveCount(1);
   });
+
+  test('zoom moves in half steps and clicks still land on the character @area:terminal', async ({
+    page,
+    standalone,
+  }) => {
+    await standalone.drainMessages();
+    await setSettings(page, { terminalPosition: 'right' });
+    await spawnFromForm(page);
+    await expect(page.getByTestId('terminal-band')).toBeVisible({ timeout: SPAWN_TIMEOUT_MS });
+    const nameplate = page.getByTestId('agent-nameplate');
+    await expect(nameplate).toHaveCount(1, { timeout: SPAWN_TIMEOUT_MS });
+
+    // Headless runs at dpr 1 → default zoom 2x; one step out is 1.5x.
+    await page.getByRole('button', { name: /Zoom out/ }).click();
+    await expect(page.getByText('1.5x')).toBeVisible();
+
+    // The DOM nameplate and the canvas picture scale together: a click on the
+    // sprite above the nameplate still hit-tests the character (hover panel).
+    const np = (await nameplate.boundingBox())!;
+    await page.mouse.move(np.x + np.width / 2, np.y - 8);
+    await expect(page.locator('[data-testid="agent-overlay"]')).toHaveCount(1);
+  });
 });

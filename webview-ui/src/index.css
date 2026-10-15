@@ -96,6 +96,10 @@
   body,
   #root {
     @apply m-0 w-full h-full overflow-hidden font-pixel text-base text-text;
+    /* Two-finger panning must never turn into the browser's back/forward
+       swipe: the office consumes wheel events, but a swipe that starts over
+       a toast or panel would otherwise arm the navigation gesture. */
+    overscroll-behavior: none;
   }
 
   * {

@@ -16,6 +16,22 @@
 
 import { TILE_SIZE } from './types.js';
 
+/** A fractional zoom level (3.5x) is drawn at the next whole level (4x, so
+ *  every sprite pixel is still a whole number of device pixels and the art
+ *  stays crisp) and the canvas is scaled DOWN by `scale` (0.875) to the
+ *  requested size. Whole levels scale by 1 and are untouched. */
+export function splitZoom(zoom: number): { renderZoom: number; scale: number } {
+  const renderZoom = Math.max(1, Math.ceil(zoom));
+  return { renderZoom, scale: zoom / renderZoom };
+}
+
+/** Backing-store size (device px) of a canvas that is scaled by `scale` to
+ *  cover `cssSize` CSS px at `dpr`. Shared by the canvas resize and the
+ *  overlay projection so both round the same way. */
+export function scaledCanvasSize(cssSize: number, dpr: number, scale: number): number {
+  return Math.round((cssSize * dpr) / scale);
+}
+
 /** Device-pixel offset of the map's top-left corner inside the canvas.
  *  This is the renderer's own frame of reference — overlays go through
  *  {@link overlayProjection} instead of calling this directly. */
@@ -56,22 +72,26 @@ export function overlayProjection(
   pan: { x: number; y: number },
   dpr: number,
 ): OverlayProjection {
-  const canvasW = Math.round(containerRect.width * dpr);
-  const canvasH = Math.round(containerRect.height * dpr);
+  // The canvas is drawn at renderZoom and scaled by `scale` on screen, so a
+  // device pixel of the backing store is scale/dpr CSS px in the container.
+  const { renderZoom, scale } = splitZoom(zoom);
+  const canvasW = scaledCanvasSize(containerRect.width, dpr, scale);
+  const canvasH = scaledCanvasSize(containerRect.height, dpr, scale);
   const { offsetX, offsetY } = mapOffset(
     canvasW,
     canvasH,
     layout.cols,
     layout.rows,
-    zoom,
+    renderZoom,
     pan.x,
     pan.y,
   );
+  const cssPerDevice = scale / dpr;
   return {
-    toScreenX: (worldX) => (offsetX + worldX * zoom) / dpr,
-    toScreenY: (worldY) => (offsetY + worldY * zoom) / dpr,
-    viewportWorldWidth: canvasW / zoom,
-    viewportWorldHeight: canvasH / zoom,
-    toWorldLength: (cssPx) => (cssPx * dpr) / zoom,
+    toScreenX: (worldX) => (offsetX + worldX * renderZoom) * cssPerDevice,
+    toScreenY: (worldY) => (offsetY + worldY * renderZoom) * cssPerDevice,
+    viewportWorldWidth: canvasW / renderZoom,
+    viewportWorldHeight: canvasH / renderZoom,
+    toWorldLength: (cssPx) => cssPx / (renderZoom * cssPerDevice),
   };
 }

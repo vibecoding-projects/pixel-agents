@@ -92,6 +92,9 @@ export const CAMERA_FOLLOW_SNAP_THRESHOLD = 0.5;
 // ── Zoom ─────────────────────────────────────────────────────
 export const ZOOM_MIN = 1;
 export const ZOOM_MAX = 10;
+/** Zoom moves in half steps: whole levels are pixel-perfect, half levels are
+ *  drawn at the next whole level and scaled down (see projection.splitZoom). */
+export const ZOOM_STEP = 0.5;
 export const ZOOM_DEFAULT_DPR_FACTOR = 2;
 export const ZOOM_LEVEL_FADE_DELAY_MS = 1500;
 export const ZOOM_LEVEL_HIDE_DELAY_MS = 2000;
