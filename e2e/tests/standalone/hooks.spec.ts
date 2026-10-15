@@ -9,7 +9,7 @@ import {
   sessionStartStartup,
 } from '../../helpers/hooks';
 import { advanceIntroToConsentStep, finishIntro } from '../../helpers/intro';
-import { expectOverlayCount, expectOverlayVisible } from '../../helpers/office';
+import { expectNoOverlay, expectOverlayCount, expectOverlayVisible } from '../../helpers/office';
 import type { RecordedServerMessage } from '../../helpers/standalone';
 import { openSettingsModal, setSettings } from '../../helpers/webview';
 
@@ -82,7 +82,9 @@ test.describe('Standalone / hooks', () => {
           message.id === toolStart?.id,
       ),
     ).toBe(true);
-    await expectOverlayVisible(page, 'Needs approval');
+    // The approved tool ran to completion: nothing waits for approval any
+    // more, so the marker and its label clear here rather than at turn end.
+    await expectNoOverlay(page, 'Needs approval', 5_000);
 
     await sendHookEvent(standalone.hookServerConfig, {
       session_id: sessionId,
